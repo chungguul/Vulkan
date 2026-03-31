@@ -1,0 +1,12 @@
+# CMake 및 빌드 디렉토리
+build/
+out/
+bin/
+CMakeCache.txt
+CMakeFiles/
+
+# VS Code 설정 (로컬 경로가 포함될 수 있으므로 제외하는 것이 좋습니다)
+.vscode/
+
+# macOS 시스템 파일
+.DS_Store
