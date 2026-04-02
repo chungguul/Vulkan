@@ -10,6 +10,7 @@
 struct Vertex {
     glm::vec3 position;
     glm::vec3 color;
+    glm::vec3 normal;
 
     static VkVertexInputBindingDescription getBindingDescription();
     static std::vector<VkVertexInputAttributeDescription> getAttributeDescriptions();

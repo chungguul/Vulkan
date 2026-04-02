@@ -17,6 +17,9 @@
 // UBO(유니폼 버퍼)용 구조체 새로 생성
 struct GlobalUbo {
     glm::mat4 projectionView;
+    glm::vec4 ambientLightColor{1.0f, 1.0f, 1.0f, 0.1f}; // RGB 1.0(흰색) + 강도 0.1(10%)
+    glm::vec3 lightDirection = glm::normalize(glm::vec3(1.0f, -3.0f, -1.0f)); // 하늘에서 비스듬히 떨어지는 빛
+    alignas(16) glm::vec4 lightColor{1.0f, 1.0f, 1.0f, 1.0f}; // 직사광선의 색상과 강도
 };
 
 // 푸시 상수는 이제 Model 변환만 담당합니다.

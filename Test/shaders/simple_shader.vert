@@ -2,21 +2,31 @@
 
 layout(location = 0) in vec3 inPosition;
 layout(location = 1) in vec3 inColor;
+layout(location = 2) in vec3 inNormal; // 추가된 속성
 
+// 프래그먼트 셰이더로 넘겨줄 데이터들
 layout(location = 0) out vec3 fragColor;
+layout(location = 1) out vec3 fragPosWorld;
+layout(location = 2) out vec3 fragNormalWorld;
 
-// ★ 추가됨: 디스크립터 셋 통신망을 통해 들어오는 전역 버퍼 (UBO)
 layout(set = 0, binding = 0) uniform GlobalUbo {
     mat4 projectionViewMatrix;
+    vec4 ambientLightColor;
+    vec3 lightDirection;
+    vec4 lightColor;
 } ubo;
 
-// 개별 오브젝트의 위치/회전만 받는 푸시 상수
 layout(push_constant) uniform Push {
     mat4 modelMatrix;
 } push;
 
 void main() {
-    // 카메라(전역) * 물체위치(개별) * 정점좌표
-    gl_Position = ubo.projectionViewMatrix * push.modelMatrix * vec4(inPosition, 1.0);
+    vec4 positionWorld = push.modelMatrix * vec4(inPosition, 1.0);
+    gl_Position = ubo.projectionViewMatrix * positionWorld;
+
     fragColor = inColor;
+    fragPosWorld = positionWorld.xyz;
+
+    // 표면의 방향(법선)도 물체와 함께 회전시킵니다.
+    fragNormalWorld = normalize(mat3(push.modelMatrix) * inNormal);
 }

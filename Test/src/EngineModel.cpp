@@ -40,6 +40,16 @@ void EngineModel::Builder::loadModel(const std::string& filepath) {
             } else {
                 vertex.color = {1.0f, 1.0f, 1.0f}; // 흰색
             }
+            // 3. 법선(Normal) 데이터
+            if (index.normal_index >= 0) {
+                vertex.normal = {
+                    attrib.normals[3 * index.normal_index + 0],
+                    attrib.normals[3 * index.normal_index + 1],
+                    attrib.normals[3 * index.normal_index + 2]
+                };
+            } else {
+                vertex.normal = {0.0f, 1.0f, 0.0f}; // 파일에 법선이 없으면 임시로 위쪽을 보게 함
+            }
 
             vertices.push_back(vertex);
             // 정점 중복 제거(Hash)는 나중으로 미루고, 우선은 순서대로 인덱스를 붙여줍니다.
@@ -62,7 +72,7 @@ VkVertexInputBindingDescription Vertex::getBindingDescription() {
 }
 
 std::vector<VkVertexInputAttributeDescription> Vertex::getAttributeDescriptions() {
-    std::vector<VkVertexInputAttributeDescription> attributeDescriptions(2);
+    std::vector<VkVertexInputAttributeDescription> attributeDescriptions(3);
     // 위치(Position) 데이터 설명
     attributeDescriptions[0].binding = 0;
     attributeDescriptions[0].location = 0;
@@ -73,6 +83,11 @@ std::vector<VkVertexInputAttributeDescription> Vertex::getAttributeDescriptions(
     attributeDescriptions[1].location = 1;
     attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
     attributeDescriptions[1].offset = offsetof(Vertex, color);
+    // 법선(Noraml) 데이터 설명
+    attributeDescriptions[2].binding = 0;
+    attributeDescriptions[2].location = 2; // 셰이더의 location = 2 에 매핑
+    attributeDescriptions[2].format = VK_FORMAT_R32G32B32_SFLOAT;
+    attributeDescriptions[2].offset = offsetof(Vertex, normal);
     
     return attributeDescriptions;
 }
