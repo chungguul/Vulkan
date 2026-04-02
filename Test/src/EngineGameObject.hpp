@@ -1,9 +1,11 @@
 #pragma once
 
 #include "EngineModel.hpp"
+#include <glm/gtc/matrix_transform.hpp>
 #include <memory>
 
-// 오브젝트의 위치, 크기, 회전을 담당하는 구조체
+// 오브젝트의 위치, 크기, 회전을 담당하는 구조체 (2D)
+/*
 struct Transform2dComponent {
     glm::vec2 translation{}; // 이동 (x, y)
     glm::vec2 scale{1.f, 1.f}; // 크기 (기본값 1배)
@@ -18,6 +20,24 @@ struct Transform2dComponent {
         return rotMatrix * scaleMatrix;
     }
 };
+*/
+struct TransformComponent {
+    glm::vec3 translation{}; // Z축 추가
+    glm::vec3 scale{1.f, 1.f, 1.f};
+    glm::vec3 rotation{}; // x, y, z 회전축
+
+    // 크기 -> 회전 -> 이동 순서로 결합된 4x4 모델 행렬을 반환합니다.
+    glm::mat4 mat4() {
+        glm::mat4 transform = glm::translate(glm::mat4(1.0f), translation);
+        transform = glm::rotate(transform, rotation.y, {0.0f, 1.0f, 0.0f}); // Y축(Yaw)
+        transform = glm::rotate(transform, rotation.x, {1.0f, 0.0f, 0.0f}); // X축(Pitch)
+        transform = glm::rotate(transform, rotation.z, {0.0f, 0.0f, 1.0f}); // Z축(Roll)
+        transform = glm::scale(transform, scale);
+        return transform;
+    }
+};
+
+
 
 class EngineGameObject {
 public:
@@ -40,7 +60,7 @@ public:
     // 모든 오브젝트가 똑같은 모델을 쓸 수 있으므로, 메모리 절약을 위해 shared_ptr(공유 포인터) 사용
     std::shared_ptr<EngineModel> model{};
     glm::vec3 color{};
-    Transform2dComponent transform2d{};
+    TransformComponent transform{};
 
 private:
     EngineGameObject(id_t objId) : id{objId} {}

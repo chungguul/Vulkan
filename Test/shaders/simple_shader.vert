@@ -1,19 +1,17 @@
 #version 450
 
-layout(location = 0) in vec2 inPosition;
+layout(location = 0) in vec3 inPosition; // vec2 -> vec3으로 변경
 layout(location = 1) in vec3 inColor;
 
 layout(location = 0) out vec3 fragColor;
 
-// CPU에서 전달받을 푸시 상수(Push Constants) 블록
+// 이제 4x4 행렬 하나(Projection * View * Model 결합본)만 받습니다.
 layout(push_constant) uniform Push {
-    mat2 transform;
-    vec2 offset;
-    vec3 color;
+    mat4 transform; 
 } push;
 
 void main() {
-    // 정점 위치에 회전 행렬을 곱하고 위치를 더해줍니다.
-    gl_Position = vec4(push.transform * inPosition + push.offset, 0.0, 1.0);
+    // 3D 위치를 행렬과 곱해 2D 화면 좌표로 변환합니다.
+    gl_Position = push.transform * vec4(inPosition, 1.0);
     fragColor = inColor;
 }

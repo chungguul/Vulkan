@@ -3,16 +3,16 @@
 #include "EngineSwapChain.hpp"
 #include "EnginePipeline.hpp"
 #include "EngineModel.hpp"
-#include "EngineGameObject.hpp" // 새로 추가!
+#include "EngineGameObject.hpp"
+#include "EngineCamera.hpp" // 카메라 추가!
 #include <iostream>
 #include <chrono>
 #include <vector>
 #include <memory>
 
+// 이제 셰이더는 4x4 결합 행렬 하나만 받습니다!
 struct SimplePushConstantData {
-    glm::mat2 transform{1.0f};
-    glm::vec2 offset;
-    alignas(16) glm::vec3 color;
+    glm::mat4 transform{1.0f}; 
 };
 
 const int WIDTH = 800;
@@ -30,42 +30,41 @@ int main() {
 
     EnginePipeline pipeline{device, "../Test/shaders/vert.spv", "../Test/shaders/frag.spv", swapChain.getRenderPass(), WIDTH, HEIGHT, {pushConstantRange}};
 
-    // 1. 공용으로 사용할 모델(사각형 데이터)을 메모리에 딱 1번만 올립니다. (shared_ptr 사용)
+    // 1. Z축 데이터(0.0f)가 추가된 3D 정점 배열
     std::vector<Vertex> vertices = {
-        {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
-        {{ 0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
-        {{ 0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}},
-        {{-0.5f,  0.5f}, {1.0f, 1.0f, 1.0f}}
+        {{-0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}},
+        {{ 0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}},
+        {{ 0.5f,  0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}},
+        {{-0.5f,  0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}}
     };
     std::vector<uint32_t> indices = {0, 1, 2, 2, 3, 0};
     auto quadModel = std::make_shared<EngineModel>(device, vertices, indices);
 
-    // 2. 게임 오브젝트 리스트 생성
     std::vector<EngineGameObject> gameObjects;
 
-    // 첫 번째 오브젝트 (왼쪽에 작고 빠르게 도는 사각형)
     auto obj1 = EngineGameObject::createGameObject();
-    obj1.model = quadModel; // 똑같은 모델 공유
-    obj1.transform2d.translation = {-0.5f, 0.0f}; // 왼쪽으로 0.5 이동
-    obj1.transform2d.scale = {0.5f, 0.5f}; // 크기 반으로 줄임
+    obj1.model = quadModel;
+    obj1.transform.translation = {-0.5f, 0.0f, 0.0f}; 
+    obj1.transform.scale = {0.5f, 0.5f, 0.5f}; 
     gameObjects.push_back(std::move(obj1));
 
-    // 두 번째 오브젝트 (오른쪽에 크고 천천히 반대로 도는 사각형)
     auto obj2 = EngineGameObject::createGameObject();
     obj2.model = quadModel;
-    obj2.transform2d.translation = {0.5f, 0.0f}; // 오른쪽으로 0.5 이동
-    obj2.transform2d.scale = {0.8f, 0.8f}; // 크기 0.8배
+    obj2.transform.translation = {0.5f, 0.0f, 0.0f}; 
+    obj2.transform.scale = {0.8f, 0.8f, 0.8f}; 
     gameObjects.push_back(std::move(obj2));
 
-    // 세 번째 오브젝트 (위에서 가만히 찌그러져 있는 사각형)
     auto obj3 = EngineGameObject::createGameObject();
     obj3.model = quadModel;
-    obj3.transform2d.translation = {0.0f, -0.5f}; // 위쪽으로 0.5 이동
-    obj3.transform2d.scale = {0.8f, 0.2f}; // 넓적하게 찌그러트림
+    obj3.transform.translation = {0.0f, -0.5f, 0.0f}; 
+    obj3.transform.scale = {0.8f, 0.2f, 1.0f}; 
     gameObjects.push_back(std::move(obj3));
 
+    // 2. ★ 카메라 생성 및 세팅 ★
+    EngineCamera camera{};
+    // 위치는 (0, 0, -2.5)로 살짝 뒤로 물러나서, (0, 0, 0) 원점을 바라보게 세팅!
+    camera.setViewTarget(glm::vec3(0.f, 0.f, -2.5f), glm::vec3(0.f, 0.f, 0.f));
 
-    // ... 커맨드 버퍼 할당 코드 (기존과 동일) ...
     VkCommandBufferAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     allocInfo.commandPool = device.getCommandPool();
@@ -75,13 +74,12 @@ int main() {
     VkCommandBuffer commandBuffer;
     vkAllocateCommandBuffers(device.getDevice(), &allocInfo, &commandBuffer);
 
-    std::cout << "엔진 루프 진입 중..." << std::endl;
     auto startTime = std::chrono::high_resolution_clock::now();
     
     while (!window.shouldClose()) {
         window.pollEvents();
 
-        // (동기화 대기 및 이미지 확보 등 기존 코드 동일)
+        // (동기화 대기/확보)
         VkFence inFlightFence = swapChain.getInFlightFence();
         vkWaitForFences(device.getDevice(), 1, &inFlightFence, VK_TRUE, UINT64_MAX);
         vkResetFences(device.getDevice(), 1, &inFlightFence);
@@ -89,6 +87,10 @@ int main() {
         uint32_t imageIndex;
         VkSemaphore imageAvailable = swapChain.getImageAvailableSemaphore();
         vkAcquireNextImageKHR(device.getDevice(), swapChain.getSwapChain(), UINT64_MAX, imageAvailable, VK_NULL_HANDLE, &imageIndex);
+
+        // ★ 매 프레임 화면 비율(Aspect Ratio)에 맞춰 원근감 행렬 갱신 ★
+        float aspect = swapChain.getWidth() / (float)swapChain.getHeight();
+        camera.setPerspectiveProjection(glm::radians(50.f), aspect, 0.1f, 10.f);
 
         vkResetCommandBuffer(commandBuffer, 0);
         VkCommandBufferBeginInfo beginInfo{};
@@ -109,24 +111,21 @@ int main() {
         vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.getPipeline());
         
-        // 시간 계산
         auto currentTime = std::chrono::high_resolution_clock::now();
         float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
 
-        // ==========================================================
-        // ★ 오브젝트 리스트를 순회하며 렌더링 ★
-        // 여기서 각 오브젝트별로 독립적인 위치/회전/크기 연산을 수행합니다!
-        
-        // obj1은 시계 방향으로 빠르게 회전
-        gameObjects[0].transform2d.rotation = time * glm::radians(180.0f);
-        // obj2는 반시계 방향으로 천천히 회전
-        gameObjects[1].transform2d.rotation = -time * glm::radians(45.0f);
-        // obj3은 회전하지 않음 (초기값 0.0f 유지)
+        // X, Y, Z축을 자유롭게 사용하여 회전
+        gameObjects[0].transform.rotation.y = time * glm::radians(90.0f); // Y축 기준으로 빙글빙글(앞뒤로 도는 느낌)
+        gameObjects[1].transform.rotation.z = -time * glm::radians(45.0f); // Z축 기준
+        gameObjects[2].transform.rotation.x = time * glm::radians(45.0f); // X축 기준 (넘어지는 느낌)
+
+        // ★ 투영 행렬과 뷰 행렬을 미리 곱해둠 (P * V) ★
+        auto projectionView = camera.getProjection() * camera.getView();
 
         for (auto& obj : gameObjects) {
             SimplePushConstantData push{};
-            push.offset = obj.transform2d.translation; // 구조체에서 위치 가져오기
-            push.transform = obj.transform2d.mat2();   // 크기+회전 행렬 계산 가져오기
+            // Projection * View * Model (GPU는 오른쪽에서 왼쪽으로 계산되므로 P * V * M 순서로 곱해야 함)
+            push.transform = projectionView * obj.transform.mat4();
 
             vkCmdPushConstants(
                 commandBuffer, 
@@ -140,12 +139,11 @@ int main() {
             obj.model->bind(commandBuffer);
             obj.model->draw(commandBuffer);
         }
-        // ==========================================================
         
         vkCmdEndRenderPass(commandBuffer);
         vkEndCommandBuffer(commandBuffer);
 
-        // (큐 제출 및 화면 출력 등 기존 코드 동일)
+        // (제출 및 Present 기존과 동일)
         VkSubmitInfo submitInfo{};
         submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
         VkSemaphore waitSemaphores[] = {imageAvailable};
@@ -175,6 +173,5 @@ int main() {
     }
 
     vkDeviceWaitIdle(device.getDevice());
-    std::cout << "엔진 정상 종료됨." << std::endl;
     return 0;
 }

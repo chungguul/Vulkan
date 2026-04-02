@@ -14,11 +14,33 @@ find_package(Vulkan REQUIRED)
 find_package(glfw3 REQUIRED)
 find_package(glm REQUIRED)
 
+# --- 셰이더 자동 컴파일 세팅 ---
+set(GLSLC "/Users/dohyun/VulkanSDK/1.4.341.1/macOS/bin/glslc")
+set(SHADER_DIR "${CMAKE_SOURCE_DIR}/shaders")
+
+add_custom_command(
+    OUTPUT "${SHADER_DIR}/vert.spv"
+    COMMAND ${GLSLC} "${SHADER_DIR}/simple_shader.vert" -o "${SHADER_DIR}/vert.spv"
+    DEPENDS "${SHADER_DIR}/simple_shader.vert"
+)
+
+add_custom_command(
+    OUTPUT "${SHADER_DIR}/frag.spv"
+    COMMAND ${GLSLC} "${SHADER_DIR}/simple_shader.frag" -o "${SHADER_DIR}/frag.spv"
+    DEPENDS "${SHADER_DIR}/simple_shader.frag"
+)
+
+add_custom_target(CompileShaders ALL DEPENDS "${SHADER_DIR}/vert.spv" "${SHADER_DIR}/frag.spv")
+# -------------------------------
+
 # src 폴더 안의 모든 .cpp 파일을 찾아서 변수에 저장합니다.
 file(GLOB_RECURSE SRC_FILES "src/*.cpp")
 
 # 찾은 파일들로 실행 파일을 만듭니다.
 add_executable(${PROJECT_NAME} ${SRC_FILES})
+
+# 실행 파일(VulkanEngine)을 빌드하기 전에 무조건 셰이더부터 컴파일하도록 강제합니다!
+add_dependencies(${PROJECT_NAME} CompileShaders)
 
 # src 폴더를 헤더 검색 경로에 추가합니다.
 target_include_directories(${PROJECT_NAME} PRIVATE src ${Vulkan_INCLUDE_DIRS})
