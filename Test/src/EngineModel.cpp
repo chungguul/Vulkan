@@ -1,6 +1,58 @@
 #include "EngineModel.hpp"
 #include <cstring>
 
+#define TINYOBJLOADER_IMPLEMENTATION
+#include "tiny_obj_loader.h"
+
+void EngineModel::Builder::loadModel(const std::string& filepath) {
+    tinyobj::attrib_t attrib;
+    std::vector<tinyobj::shape_t> shapes;
+    std::vector<tinyobj::material_t> materials;
+    std::string warn, err;
+
+    // .obj 파일을 읽어옵니다.
+    if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, filepath.c_str())) {
+        throw std::runtime_error("실패: 모델 파일을 로드할 수 없습니다! 에러: " + warn + err);
+    }
+
+    vertices.clear();
+    indices.clear();
+
+    // 파일에 있는 모든 도형(shape)의 정점을 순회하며 우리의 Vertex 구조체로 변환합니다.
+    for (const auto& shape : shapes) {
+        for (const auto& index : shape.mesh.indices) {
+            Vertex vertex{};
+            
+            // 1. 위치(Position) 데이터
+            vertex.position = {
+                attrib.vertices[3 * index.vertex_index + 0],
+                attrib.vertices[3 * index.vertex_index + 1],
+                attrib.vertices[3 * index.vertex_index + 2]
+            };
+
+            // 2. 색상(Color) 데이터 (파일에 색상 정보가 없으면 기본 흰색 지정)
+            if (!attrib.colors.empty()) {
+                vertex.color = {
+                    attrib.colors[3 * index.vertex_index + 0],
+                    attrib.colors[3 * index.vertex_index + 1],
+                    attrib.colors[3 * index.vertex_index + 2]
+                };
+            } else {
+                vertex.color = {1.0f, 1.0f, 1.0f}; // 흰색
+            }
+
+            vertices.push_back(vertex);
+            // 정점 중복 제거(Hash)는 나중으로 미루고, 우선은 순서대로 인덱스를 붙여줍니다.
+            indices.push_back(indices.size()); 
+        }
+    }
+}
+
+EngineModel::EngineModel(EngineDevice& device, const EngineModel::Builder& builder) : engineDevice{device} {
+    createVertexBuffers(builder.vertices);
+    createIndexBuffers(builder.indices);
+}
+
 VkVertexInputBindingDescription Vertex::getBindingDescription() {
     VkVertexInputBindingDescription bindingDescription{};
     bindingDescription.binding = 0;
