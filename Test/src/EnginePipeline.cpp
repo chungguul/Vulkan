@@ -4,9 +4,9 @@
 #include <iostream>
 #include <stdexcept>
 
-EnginePipeline::EnginePipeline(EngineDevice& device, const std::string& vertFilepath, const std::string& fragFilepath, VkRenderPass renderPass, uint32_t width, uint32_t height, const std::vector<VkPushConstantRange>& pushConstantRanges)
+EnginePipeline::EnginePipeline(EngineDevice& device, const std::string& vertFilepath, const std::string& fragFilepath, VkRenderPass renderPass, uint32_t width, uint32_t height, const std::vector<VkDescriptorSetLayout>& descriptorSetLayouts, const std::vector<VkPushConstantRange>& pushConstantRanges)
     : engineDevice{device} {
-    createGraphicsPipeline(vertFilepath, fragFilepath, renderPass, width, height, pushConstantRanges);
+    createGraphicsPipeline(vertFilepath, fragFilepath, renderPass, width, height, descriptorSetLayouts, pushConstantRanges);
 }
 
 EnginePipeline::~EnginePipeline() {
@@ -43,7 +43,7 @@ VkShaderModule EnginePipeline::createShaderModule(const std::vector<char>& code)
 }
 
 
-void EnginePipeline::createGraphicsPipeline(const std::string& vertFilepath, const std::string& fragFilepath, VkRenderPass renderPass, uint32_t width, uint32_t height, const std::vector<VkPushConstantRange>& pushConstantRanges) {
+void EnginePipeline::createGraphicsPipeline(const std::string& vertFilepath, const std::string& fragFilepath, VkRenderPass renderPass, uint32_t width, uint32_t height, const std::vector<VkDescriptorSetLayout>& descriptorSetLayouts, const std::vector<VkPushConstantRange>& pushConstantRanges) {
     auto vertCode = readFile(vertFilepath);
     auto fragCode = readFile(fragFilepath);
 
@@ -143,6 +143,10 @@ void EnginePipeline::createGraphicsPipeline(const std::string& vertFilepath, con
     VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
     pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     
+    //디스크립터 레이아웃(규격)을 파이프라인에 연결합니다.
+    pipelineLayoutInfo.setLayoutCount = static_cast<uint32_t>(descriptorSetLayouts.size());
+    pipelineLayoutInfo.pSetLayouts = descriptorSetLayouts.data();
+
     // 외부에서 받아온 푸시 상수 정보를 여기에 넣어줍니다.
     pipelineLayoutInfo.pushConstantRangeCount = static_cast<uint32_t>(pushConstantRanges.size());
     pipelineLayoutInfo.pPushConstantRanges = pushConstantRanges.data();

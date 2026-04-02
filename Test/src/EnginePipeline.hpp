@@ -13,7 +13,8 @@ public:
         const std::string& vertFilepath, 
         const std::string& fragFilepath, 
         VkRenderPass renderPass, 
-        uint32_t width, uint32_t height, 
+        uint32_t width, uint32_t height,
+        const std::vector<VkDescriptorSetLayout>& descriptorSetLayouts,
         const std::vector<VkPushConstantRange>& pushConstantRanges = {}); // 기본값은 빈 배열
     
     ~EnginePipeline();
@@ -24,12 +25,12 @@ public:
 private:
     static std::vector<char> readFile(const std::string& filepath);
     
-    // 여기도 pushConstantRanges 매개변수 추가
     void createGraphicsPipeline(
         const std::string& vertFilepath, 
         const std::string& fragFilepath, 
         VkRenderPass renderPass, 
         uint32_t width, uint32_t height, 
+        const std::vector<VkDescriptorSetLayout>& descriptorSetLayouts,
         const std::vector<VkPushConstantRange>& pushConstantRanges);
         
     VkShaderModule createShaderModule(const std::vector<char>& code);

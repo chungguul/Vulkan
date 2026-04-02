@@ -11,9 +11,15 @@
 #include <vector>
 #include <memory>
 
-// 이제 셰이더는 4x4 결합 행렬 하나만 받습니다!
+
+// UBO(유니폼 버퍼)용 구조체 새로 생성
+struct GlobalUbo {
+    glm::mat4 projectionView;
+};
+
+// 푸시 상수는 이제 Model 변환만 담당합니다.
 struct SimplePushConstantData {
-    glm::mat4 transform{1.0f}; 
+    glm::mat4 modelMatrix{1.0f}; 
 };
 
 const int WIDTH = 800;
@@ -24,12 +30,95 @@ int main() {
     EngineDevice device{window};
     EngineSwapChain swapChain{device, WIDTH, HEIGHT};
 
+    //디스크립터 세팅
+    // --- 1. UBO 메모리 버퍼 생성 ---
+    VkBuffer uboBuffer;
+    VkDeviceMemory uboMemory;
+    VkBufferCreateInfo bufferInfo{};
+    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bufferInfo.size = sizeof(GlobalUbo);
+    bufferInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    vkCreateBuffer(device.getDevice(), &bufferInfo, nullptr, &uboBuffer);
+
+    VkMemoryRequirements memRequirements;
+    vkGetBufferMemoryRequirements(device.getDevice(), uboBuffer, &memRequirements);
+    VkMemoryAllocateInfo allocInfoUbo{};
+    allocInfoUbo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocInfoUbo.allocationSize = memRequirements.size;
+    allocInfoUbo.memoryTypeIndex = device.findMemoryType(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    vkAllocateMemory(device.getDevice(), &allocInfoUbo, nullptr, &uboMemory);
+    vkBindBufferMemory(device.getDevice(), uboBuffer, uboMemory, 0);
+
+    // --- 2. 디스크립터 레이아웃(규격) 생성 ---
+    VkDescriptorSetLayoutBinding uboLayoutBinding{};
+    uboLayoutBinding.binding = 0;
+    uboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    uboLayoutBinding.descriptorCount = 1;
+    uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT; // 버텍스 셰이더에서 사용
+
+    VkDescriptorSetLayoutCreateInfo layoutInfo{};
+    layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    layoutInfo.bindingCount = 1;
+    layoutInfo.pBindings = &uboLayoutBinding;
+
+    VkDescriptorSetLayout globalSetLayout;
+    if (vkCreateDescriptorSetLayout(device.getDevice(), &layoutInfo, nullptr, &globalSetLayout) != VK_SUCCESS) {
+        throw std::runtime_error("실패: 디스크립터 세트 레이아웃 생성 오류!");
+    }
+
+    // --- 3. 디스크립터 풀(수영장) 생성 ---
+    VkDescriptorPoolSize poolSize{};
+    poolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    poolSize.descriptorCount = 1;
+
+    VkDescriptorPoolCreateInfo poolInfo{};
+    poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    poolInfo.poolSizeCount = 1;
+    poolInfo.pPoolSizes = &poolSize;
+    poolInfo.maxSets = 1;
+
+    VkDescriptorPool descriptorPool;
+    if (vkCreateDescriptorPool(device.getDevice(), &poolInfo, nullptr, &descriptorPool) != VK_SUCCESS) {
+        throw std::runtime_error("실패: 디스크립터 풀 생성 오류!");
+    }
+
+    // --- 4. 디스크립터 세트 할당 및 UBO 버퍼와 연결 ---
+    VkDescriptorSetAllocateInfo allocSetInfo{};
+    allocSetInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    allocSetInfo.descriptorPool = descriptorPool;
+    allocSetInfo.descriptorSetCount = 1;
+    allocSetInfo.pSetLayouts = &globalSetLayout;
+
+    VkDescriptorSet globalDescriptorSet;
+    if (vkAllocateDescriptorSets(device.getDevice(), &allocSetInfo, &globalDescriptorSet) != VK_SUCCESS) {
+        throw std::runtime_error("실패: 디스크립터 세트 할당 오류!");
+    }
+
+    VkDescriptorBufferInfo descriptorBufferInfo{};
+    descriptorBufferInfo.buffer = uboBuffer;
+    descriptorBufferInfo.offset = 0;
+    descriptorBufferInfo.range = sizeof(GlobalUbo);
+
+    VkWriteDescriptorSet descriptorWrite{};
+    descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    descriptorWrite.dstSet = globalDescriptorSet;
+    descriptorWrite.dstBinding = 0;
+    descriptorWrite.dstArrayElement = 0;
+    descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    descriptorWrite.descriptorCount = 1;
+    descriptorWrite.pBufferInfo = &descriptorBufferInfo;
+
+    vkUpdateDescriptorSets(device.getDevice(), 1, &descriptorWrite, 0, nullptr);
+
+
     VkPushConstantRange pushConstantRange{};
     pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT; 
     pushConstantRange.offset = 0;
     pushConstantRange.size = sizeof(SimplePushConstantData);
 
-    EnginePipeline pipeline{device, "../Test/shaders/vert.spv", "../Test/shaders/frag.spv", swapChain.getRenderPass(), WIDTH, HEIGHT, {pushConstantRange}};
+    //파이프라인 세팅
+    EnginePipeline pipeline{device, "../Test/shaders/vert.spv", "../Test/shaders/frag.spv", swapChain.getRenderPass(), WIDTH, HEIGHT, {globalSetLayout}, {pushConstantRange}};
 
     // 피라미드 obj파일 로드
     std::cout << "모델 로딩 중..." << std::endl;
@@ -148,10 +237,23 @@ int main() {
         // ★ 투영 행렬과 뷰 행렬을 미리 곱해둠 (P * V) ★
         auto projectionView = camera.getProjection() * camera.getView();
 
+        //오브젝트를 그리기 전 1회 UBO데이터 업데이트
+        GlobalUbo ubo{};
+        ubo.projectionView = camera.getProjection() * camera.getView();
+        
+        void* data;
+        vkMapMemory(device.getDevice(), uboMemory, 0, sizeof(ubo), 0, &data);
+        memcpy(data, &ubo, sizeof(ubo));
+        vkUnmapMemory(device.getDevice(), uboMemory);
+
+        //파이프라인에 디스크립터 셋(통신망) 장착!
+        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.getPipelineLayout(), 0, 1, &globalDescriptorSet, 0, nullptr);
+
         for (auto& obj : gameObjects) {
             SimplePushConstantData push{};
             // Projection * View * Model (GPU는 오른쪽에서 왼쪽으로 계산되므로 P * V * M 순서로 곱해야 함)
-            push.transform = projectionView * obj.transform.mat4();
+            //push.transform = projectionView * obj.transform.mat4();
+            push.modelMatrix = obj.transform.mat4();
 
             vkCmdPushConstants(
                 commandBuffer, 
@@ -199,5 +301,9 @@ int main() {
     }
 
     vkDeviceWaitIdle(device.getDevice());
+    // vkDestroyDescriptorPool();
+    // vkDestroyDescriptorSetLayout();
+    // vkDestroyBuffer();
+    // vkFreeMemory();
     return 0;
 }
