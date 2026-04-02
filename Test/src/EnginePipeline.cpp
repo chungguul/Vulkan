@@ -1,11 +1,12 @@
 #include "EnginePipeline.hpp"
+#include "EngineModel.hpp"
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
 
-EnginePipeline::EnginePipeline(EngineDevice& device, const std::string& vertFilepath, const std::string& fragFilepath, VkRenderPass renderPass, uint32_t width, uint32_t height)
+EnginePipeline::EnginePipeline(EngineDevice& device, const std::string& vertFilepath, const std::string& fragFilepath, VkRenderPass renderPass, uint32_t width, uint32_t height, const std::vector<VkPushConstantRange>& pushConstantRanges)
     : engineDevice{device} {
-    createGraphicsPipeline(vertFilepath, fragFilepath, renderPass, width, height);
+    createGraphicsPipeline(vertFilepath, fragFilepath, renderPass, width, height, pushConstantRanges);
 }
 
 EnginePipeline::~EnginePipeline() {
@@ -41,7 +42,8 @@ VkShaderModule EnginePipeline::createShaderModule(const std::vector<char>& code)
     return shaderModule;
 }
 
-void EnginePipeline::createGraphicsPipeline(const std::string& vertFilepath, const std::string& fragFilepath, VkRenderPass renderPass, uint32_t width, uint32_t height) {
+
+void EnginePipeline::createGraphicsPipeline(const std::string& vertFilepath, const std::string& fragFilepath, VkRenderPass renderPass, uint32_t width, uint32_t height, const std::vector<VkPushConstantRange>& pushConstantRanges) {
     auto vertCode = readFile(vertFilepath);
     auto fragCode = readFile(fragFilepath);
 
@@ -63,11 +65,16 @@ void EnginePipeline::createGraphicsPipeline(const std::string& vertFilepath, con
 
     VkPipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo, fragShaderStageInfo};
 
-    // 2. 버텍스 입력 (지금은 셰이더 안에 좌표가 하드코딩되어 있으므로 비워둡니다)
+    // 2. 버텍스 입력 (EngineModel에서 가져온 설명서 장착)
+    auto bindingDescription = Vertex::getBindingDescription();
+    auto attributeDescriptions = Vertex::getAttributeDescriptions();
+
     VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
     vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    vertexInputInfo.vertexBindingDescriptionCount = 0;
-    vertexInputInfo.vertexAttributeDescriptionCount = 0;
+    vertexInputInfo.vertexBindingDescriptionCount = 1;
+    vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
+    vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
+    vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
 
     // 3. 입력 어셈블리 (점들을 이어서 삼각형으로 만듭니다)
     VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
@@ -126,6 +133,10 @@ void EnginePipeline::createGraphicsPipeline(const std::string& vertFilepath, con
     // 8. 파이프라인 레이아웃 (셰이더에 유니폼 변수 같은 전역 값을 넘길 때 사용. 일단 비워둠)
     VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
     pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    
+    // 외부에서 받아온 푸시 상수 정보를 여기에 넣어줍니다.
+    pipelineLayoutInfo.pushConstantRangeCount = static_cast<uint32_t>(pushConstantRanges.size());
+    pipelineLayoutInfo.pPushConstantRanges = pushConstantRanges.data();
 
     if (vkCreatePipelineLayout(engineDevice.getDevice(), &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS) {
         throw std::runtime_error("실패: 파이프라인 레이아웃 생성 오류!");

@@ -30,6 +30,8 @@ public:
     VkQueue getPresentQueue() { return presentQueue; }
     VkCommandPool getCommandPool() { return commandPool; }
 
+    uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
+
 private:
     void createInstance();
     void createSurface();

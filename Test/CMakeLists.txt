@@ -12,6 +12,7 @@ endif()
 
 find_package(Vulkan REQUIRED)
 find_package(glfw3 REQUIRED)
+find_package(glm REQUIRED)
 
 # src 폴더 안의 모든 .cpp 파일을 찾아서 변수에 저장합니다.
 file(GLOB_RECURSE SRC_FILES "src/*.cpp")
@@ -21,4 +22,5 @@ add_executable(${PROJECT_NAME} ${SRC_FILES})
 
 # src 폴더를 헤더 검색 경로에 추가합니다.
 target_include_directories(${PROJECT_NAME} PRIVATE src ${Vulkan_INCLUDE_DIRS})
-target_link_libraries(${PROJECT_NAME} Vulkan::Vulkan glfw)
+target_link_libraries(${PROJECT_NAME} Vulkan::Vulkan glfw glm::glm)
+
