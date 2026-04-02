@@ -5,6 +5,7 @@
 #include "EngineModel.hpp"
 #include "EngineGameObject.hpp"
 #include "EngineCamera.hpp" // 카메라 추가!
+#include "KeyboardMovementController.hpp"
 #include <iostream>
 #include <chrono>
 #include <vector>
@@ -72,7 +73,14 @@ int main() {
     obj3.transform.scale = {0.8f, 0.2f, 1.0f}; 
     gameObjects.push_back(std::move(obj3));
 
-    // 2. ★ 카메라 생성 및 세팅 ★
+    // 플레이어의 눈이 되어줄 "뷰어(Viewer)" 게임 오브젝트를 만듭니다.
+    EngineGameObject viewerObject = EngineGameObject::createGameObject();
+    // 시작 위치를 살짝 뒤로 물러나게 설정
+    viewerObject.transform.translation = {0.f, 0.f, 2.5f};
+    
+    //키보드 조종기 생성
+    KeyboardMovementController cameraController{};
+
     EngineCamera camera{};
     // 위치는 (0, 0, -2.5)로 살짝 뒤로 물러나서, (0, 0, 0) 원점을 바라보게 세팅!
     camera.setViewTarget(glm::vec3(0.f, 0.f, -2.5f), glm::vec3(0.f, 0.f, 0.f));
@@ -86,10 +94,26 @@ int main() {
     VkCommandBuffer commandBuffer;
     vkAllocateCommandBuffers(device.getDevice(), &allocInfo, &commandBuffer);
 
-    auto startTime = std::chrono::high_resolution_clock::now();
+    std::cout << "엔진 루프 진입 중..." << std::endl;
+    auto currentTime = std::chrono::high_resolution_clock::now();
     
     while (!window.shouldClose()) {
         window.pollEvents();
+
+        //Delta Time (dt) 계산
+        auto newTime = std::chrono::high_resolution_clock::now();
+        float frameTime = std::chrono::duration<float, std::chrono::seconds::period>(newTime - currentTime).count();
+        currentTime = newTime;
+
+        // ★ 키보드 입력을 받아 뷰어 오브젝트를 움직입니다!
+        cameraController.moveInPlaneXZ(window.getGLFWwindow(), frameTime, viewerObject);
+        
+        // ★ 카메라의 뷰 행렬을 뷰어 오브젝트의 위치/회전 값으로 덮어씌웁니다.
+        camera.setViewYXZ(viewerObject.transform.translation, viewerObject.transform.rotation);
+
+        // ★ 매 프레임 화면 비율(Aspect Ratio)에 맞춰 원근감 행렬 갱신 ★
+        float aspect = swapChain.getWidth() / (float)swapChain.getHeight();
+        camera.setPerspectiveProjection(glm::radians(50.f), aspect, 0.1f, 10.f);
 
         // (동기화 대기/확보)
         VkFence inFlightFence = swapChain.getInFlightFence();
@@ -99,10 +123,6 @@ int main() {
         uint32_t imageIndex;
         VkSemaphore imageAvailable = swapChain.getImageAvailableSemaphore();
         vkAcquireNextImageKHR(device.getDevice(), swapChain.getSwapChain(), UINT64_MAX, imageAvailable, VK_NULL_HANDLE, &imageIndex);
-
-        // ★ 매 프레임 화면 비율(Aspect Ratio)에 맞춰 원근감 행렬 갱신 ★
-        float aspect = swapChain.getWidth() / (float)swapChain.getHeight();
-        camera.setPerspectiveProjection(glm::radians(50.f), aspect, 0.1f, 10.f);
 
         vkResetCommandBuffer(commandBuffer, 0);
         VkCommandBufferBeginInfo beginInfo{};
@@ -130,13 +150,13 @@ int main() {
         vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.getPipeline());
         
-        auto currentTime = std::chrono::high_resolution_clock::now();
-        float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
+        //auto currentTime = std::chrono::high_resolution_clock::now();
+        //float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
 
-        // X, Y, Z축을 자유롭게 사용하여 회전
-        gameObjects[0].transform.rotation.y = time * glm::radians(90.0f); // Y축 기준으로 빙글빙글(앞뒤로 도는 느낌)
-        gameObjects[1].transform.rotation.z = -time * glm::radians(45.0f); // Z축 기준
-        gameObjects[2].transform.rotation.x = time * glm::radians(45.0f); // X축 기준 (넘어지는 느낌)
+        // X, Y, Z축을 자유롭게 사용하여 회전 delta time으로 변경
+        gameObjects[0].transform.rotation.y += frameTime * glm::radians(90.0f); // Y축 기준으로 빙글빙글(앞뒤로 도는 느낌)
+        gameObjects[1].transform.rotation.z -= frameTime * glm::radians(45.0f); // Z축 기준
+        gameObjects[2].transform.rotation.x += frameTime * glm::radians(45.0f); // X축 기준 (넘어지는 느낌)
 
         // ★ 투영 행렬과 뷰 행렬을 미리 곱해둠 (P * V) ★
         auto projectionView = camera.getProjection() * camera.getView();

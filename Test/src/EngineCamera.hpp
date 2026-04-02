@@ -12,6 +12,8 @@ public:
 
     const glm::mat4& getProjection() const { return projectionMatrix; }
     const glm::mat4& getView() const { return viewMatrix; }
+    //카메라의 위치와 회전각(Pitch, Yaw, Roll) 기반으로 뷰 행렬 계산
+    void setViewYXZ(glm::vec3 position, glm::vec3 rotation);
 
 private:
     glm::mat4 projectionMatrix{1.f};
