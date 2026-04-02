@@ -30,16 +30,28 @@ int main() {
 
     EnginePipeline pipeline{device, "../Test/shaders/vert.spv", "../Test/shaders/frag.spv", swapChain.getRenderPass(), WIDTH, HEIGHT, {pushConstantRange}};
 
-    // 1. Z축 데이터(0.0f)가 추가된 3D 정점 배열
+    // 육면체 Cube
     std::vector<Vertex> vertices = {
-        {{-0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}},
-        {{ 0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}},
-        {{ 0.5f,  0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}},
-        {{-0.5f,  0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}}
+        {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}}, // 0: 좌하앞 (빨)
+        {{ 0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}}, // 1: 우하앞 (초)
+        {{ 0.5f,  0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}}, // 2: 우상앞 (파)
+        {{-0.5f,  0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}}, // 3: 좌상앞 (흰)
+        {{-0.5f, -0.5f,  0.5f}, {1.0f, 0.0f, 1.0f}}, // 4: 좌하뒤 (보)
+        {{ 0.5f, -0.5f,  0.5f}, {0.0f, 1.0f, 1.0f}}, // 5: 우하뒤 (청)
+        {{ 0.5f,  0.5f,  0.5f}, {1.0f, 1.0f, 0.0f}}, // 6: 우상뒤 (노)
+        {{-0.5f,  0.5f,  0.5f}, {0.0f, 0.0f, 0.0f}}  // 7: 좌상뒤 (검)
     };
-    std::vector<uint32_t> indices = {0, 1, 2, 2, 3, 0};
+    
+    // 육면체의 6개 면을 구성하는 12개의 삼각형 (총 36개 인덱스)
+    std::vector<uint32_t> indices = {
+        0, 1, 2, 2, 3, 0, // 앞면
+        1, 5, 6, 6, 2, 1, // 우측면
+        5, 4, 7, 7, 6, 5, // 뒷면
+        4, 0, 3, 3, 7, 4, // 좌측면
+        3, 2, 6, 6, 7, 3, // 윗면
+        4, 5, 1, 1, 0, 4  // 아랫면
+    };
     auto quadModel = std::make_shared<EngineModel>(device, vertices, indices);
-
     std::vector<EngineGameObject> gameObjects;
 
     auto obj1 = EngineGameObject::createGameObject();
@@ -105,8 +117,15 @@ int main() {
         renderPassInfo.renderArea.extent = {(uint32_t)WIDTH, (uint32_t)HEIGHT};
 
         VkClearValue clearColor = {{{0.02f, 0.05f, 0.1f, 1.0f}}};
-        renderPassInfo.clearValueCount = 1;
-        renderPassInfo.pClearValues = &clearColor;
+        
+        VkClearValue clearDepth{};
+        clearDepth.depthStencil = {1.0f, 0};
+
+        std::vector<VkClearValue> clearValues = {clearColor, clearDepth};
+        // ==========================================================
+
+        renderPassInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
+        renderPassInfo.pClearValues = clearValues.data();
 
         vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.getPipeline());

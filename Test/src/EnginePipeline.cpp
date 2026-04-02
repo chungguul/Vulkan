@@ -130,6 +130,15 @@ void EnginePipeline::createGraphicsPipeline(const std::string& vertFilepath, con
     colorBlending.attachmentCount = 1;
     colorBlending.pAttachments = &colorBlendAttachment;
 
+    // 7.5 깊이 버퍼 설정 (Depth Stencil)
+    VkPipelineDepthStencilStateCreateInfo depthStencil{};
+    depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depthStencil.depthTestEnable = VK_TRUE;       // 깊이 테스트 켜기
+    depthStencil.depthWriteEnable = VK_TRUE;      // 깊이 버퍼에 쓰기 켜기
+    depthStencil.depthCompareOp = VK_COMPARE_OP_LESS; // 더 가까운(값이 작은) 픽셀만 그리기
+    depthStencil.depthBoundsTestEnable = VK_FALSE;
+    depthStencil.stencilTestEnable = VK_FALSE;
+
     // 8. 파이프라인 레이아웃 (셰이더에 유니폼 변수 같은 전역 값을 넘길 때 사용. 일단 비워둠)
     VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
     pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -153,6 +162,7 @@ void EnginePipeline::createGraphicsPipeline(const std::string& vertFilepath, con
     pipelineInfo.pRasterizationState = &rasterizer;
     pipelineInfo.pMultisampleState = &multisampling;
     pipelineInfo.pColorBlendState = &colorBlending;
+    pipelineInfo.pDepthStencilState = &depthStencil;
     pipelineInfo.layout = pipelineLayout;
     pipelineInfo.renderPass = renderPass; // 이 파이프라인이 어떤 렌더 패스에서 쓰일지 명시
     pipelineInfo.subpass = 0;

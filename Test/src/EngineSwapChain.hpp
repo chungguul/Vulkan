@@ -27,6 +27,7 @@ public:
 private:
     void createSwapChain();
     void createImageViews();
+    void createDepthResources();
     void createRenderPass();
     void createFramebuffers();
     void createSyncObjects();
@@ -38,6 +39,11 @@ private:
     VkSwapchainKHR swapchain;
     std::vector<VkImage> swapchainImages;
     std::vector<VkImageView> swapchainImageViews;
+
+    //깊이 이미지 관련 변수
+    VkImage depthImage;
+    VkDeviceMemory depthImageMemory;
+    VkImageView depthImageView;
     
     VkRenderPass renderPass;
     std::vector<VkFramebuffer> swapchainFramebuffers;
