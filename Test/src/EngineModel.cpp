@@ -2,71 +2,63 @@
 #include <cstring>
 
 #define TINYOBJLOADER_IMPLEMENTATION
-#include "tiny_obj_loader.h"
+#include <assimp/Importer.hpp>
+#include <assimp/scene.h>
+#include <assimp/postprocess.h>
 
 void EngineModel::Builder::loadModel(const std::string& filepath) {
-    tinyobj::attrib_t attrib;
-    std::vector<tinyobj::shape_t> shapes;
-    std::vector<tinyobj::material_t> materials;
-    std::string warn, err;
+    Assimp::Importer importer;
+    // aiProcess_Triangulate: 다각형을 무조건 삼각형으로 쪼갬
+    // aiProcess_FlipUVs: Vulkan의 Y축 반전에 맞춰 UV를 뒤집음
+    // aiProcess_GenNormals: 법선이 없으면 자동으로 생성해 줌
+    const aiScene* scene = importer.ReadFile(filepath, 
+        aiProcess_Triangulate | aiProcess_FlipUVs | aiProcess_GenNormals);
 
-    // .obj 파일을 읽어옵니다.
-    if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, filepath.c_str())) {
-        throw std::runtime_error("실패: 모델 파일을 로드할 수 없습니다! 에러: " + warn + err);
+    if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode) {
+        throw std::runtime_error("실패: Assimp 모델 로드 오류 - " + std::string(importer.GetErrorString()));
     }
 
     vertices.clear();
     indices.clear();
 
-    // 파일에 있는 모든 도형(shape)의 정점을 순회하며 우리의 Vertex 구조체로 변환합니다.
-    for (const auto& shape : shapes) {
-        for (const auto& index : shape.mesh.indices) {
-            Vertex vertex{};
-            
-            // 1. 위치(Position) 데이터
-            vertex.position = {
-                attrib.vertices[3 * index.vertex_index + 0],
-                attrib.vertices[3 * index.vertex_index + 1],
-                attrib.vertices[3 * index.vertex_index + 2]
-            };
+    // 현재는 첫 번째 메쉬(Mesh)만 읽어옵니다. (나중에는 재귀적으로 모든 노드를 순회하게 고칠 예정입니다)
+    aiMesh* mesh = scene->mMeshes[0];
 
-            // 2. 색상(Color) 데이터 (파일에 색상 정보가 없으면 기본 흰색 지정)
-            if (!attrib.colors.empty()) {
-                vertex.color = {
-                    attrib.colors[3 * index.vertex_index + 0],
-                    attrib.colors[3 * index.vertex_index + 1],
-                    attrib.colors[3 * index.vertex_index + 2]
-                };
-            } else {
-                vertex.color = {1.0f, 1.0f, 1.0f}; // 흰색
-            }
-            // 3. 법선(Normal) 데이터
-            if (index.normal_index >= 0) {
-                vertex.normal = {
-                    attrib.normals[3 * index.normal_index + 0],
-                    attrib.normals[3 * index.normal_index + 1],
-                    attrib.normals[3 * index.normal_index + 2]
-                };
-            } else {
-                vertex.normal = {0.0f, 1.0f, 0.0f}; // 파일에 법선이 없으면 임시로 위쪽을 보게 함
-            }
-            // 4. UV(TexCoord) 데이터 파싱 추가
-            if (index.texcoord_index >= 0) {
-                vertex.uv = {
-                    attrib.texcoords[2 * index.texcoord_index + 0],
-                    // Vulkan은 이미지의 Y축이 반대이므로 1.0에서 빼주어 뒤집습니다.
-                    1.0f - attrib.texcoords[2 * index.texcoord_index + 1] 
-                };
-            } else {
-                vertex.uv = {0.0f, 0.0f};
-            }
+    for (unsigned int i = 0; i < mesh->mNumVertices; i++) {
+        Vertex vertex{};
 
-            vertices.push_back(vertex);
-            // 정점 중복 제거(Hash)는 나중으로 미루고, 우선은 순서대로 인덱스를 붙여줍니다.
-            indices.push_back(indices.size()); 
+        // 1. 위치
+        vertex.position = { mesh->mVertices[i].x, mesh->mVertices[i].y, mesh->mVertices[i].z };
+
+        // 2. 법선
+        if (mesh->HasNormals()) {
+            vertex.normal = { mesh->mNormals[i].x, mesh->mNormals[i].y, mesh->mNormals[i].z };
+        }
+
+        // 3. 텍스처 UV 좌표
+        if (mesh->mTextureCoords[0]) {
+            vertex.uv = { mesh->mTextureCoords[0][i].x, mesh->mTextureCoords[0][i].y };
+        } else {
+            vertex.uv = { 0.0f, 0.0f };
+        }
+
+        // 4. 색상 (기본값 흰색)
+        vertex.color = { 1.0f, 1.0f, 1.0f };
+
+        // (뼈대 데이터는 나중에 애니메이션 데이터를 파싱할 때 채워넣을 예정이므로 지금은 기본값 유지)
+
+        vertices.push_back(vertex);
+    }
+
+    // 인덱스 데이터 읽기 (각 삼각형 면(Face)의 인덱스)
+    for (unsigned int i = 0; i < mesh->mNumFaces; i++) {
+        aiFace face = mesh->mFaces[i];
+        for (unsigned int j = 0; j < face.mNumIndices; j++) {
+            indices.push_back(face.mIndices[j]);
         }
     }
 }
+
 
 EngineModel::EngineModel(EngineDevice& device, const EngineModel::Builder& builder) : engineDevice{device} {
     createVertexBuffers(builder.vertices);
@@ -82,7 +74,7 @@ VkVertexInputBindingDescription Vertex::getBindingDescription() {
 }
 
 std::vector<VkVertexInputAttributeDescription> Vertex::getAttributeDescriptions() {
-    std::vector<VkVertexInputAttributeDescription> attributeDescriptions(4);
+    std::vector<VkVertexInputAttributeDescription> attributeDescriptions(6);
     // 위치(Position) 데이터 설명
     attributeDescriptions[0].binding = 0;
     attributeDescriptions[0].location = 0;
@@ -103,14 +95,21 @@ std::vector<VkVertexInputAttributeDescription> Vertex::getAttributeDescriptions(
     attributeDescriptions[3].location = 3; // 셰이더의 location = 3
     attributeDescriptions[3].format = VK_FORMAT_R32G32_SFLOAT; // vec2이므로 R32G32
     attributeDescriptions[3].offset = offsetof(Vertex, uv);
-    
+    // Bone IDs (정수형 데이터이므로 SINT 사용)
+    attributeDescriptions[4].binding = 0;
+    attributeDescriptions[4].location = 4;
+    attributeDescriptions[4].format = VK_FORMAT_R32G32B32A32_SINT; 
+    attributeDescriptions[4].offset = offsetof(Vertex, boneIDs);
+    // Bone Weights (실수형)
+    attributeDescriptions[5].binding = 0;
+    attributeDescriptions[5].location = 5;
+    attributeDescriptions[5].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescriptions[5].offset = offsetof(Vertex, boneWeights);
+
+
     return attributeDescriptions;
 }
 
-EngineModel::EngineModel(EngineDevice& device, const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices) : engineDevice{device} {
-    createVertexBuffers(vertices);
-    createIndexBuffers(indices);
-}
 
 EngineModel::~EngineModel() {
     vkDestroyBuffer(engineDevice.getDevice(), vertexBuffer, nullptr);

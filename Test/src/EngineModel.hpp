@@ -5,13 +5,19 @@
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <glm/glm.hpp>
 #include <vector>
-#include <string> // 추가됨
+#include <string>
+
+// 최대 영향을 받을 수 있는 뼈대 개수 제한
+#define MAX_BONE_INFLUENCE 4
 
 struct Vertex {
     glm::vec3 position;
     glm::vec3 color;
     glm::vec3 normal;
-    glm::vec2 uv; // Texture coordinate
+    glm::vec2 uv;
+    //뼈대 데이터
+    glm::ivec4 boneIDs{-1, -1, -1, -1}; // 영향을 주는 뼈대의 ID (기본값 -1)
+    glm::vec4 boneWeights{0.0f, 0.0f, 0.0f, 0.0f}; // 각 뼈대의 영향력(가중치)
 
     static VkVertexInputBindingDescription getBindingDescription();
     static std::vector<VkVertexInputAttributeDescription> getAttributeDescriptions();
@@ -19,7 +25,6 @@ struct Vertex {
 
 class EngineModel {
 public:
-    // 파일에서 데이터를 읽어올 임시 보관소 (Builder)
     struct Builder {
         std::vector<Vertex> vertices{};
         std::vector<uint32_t> indices{};
@@ -27,12 +32,7 @@ public:
         void loadModel(const std::string& filepath);
     };
 
-    // 기존 생성자 유지
-    EngineModel(EngineDevice& device, const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices);
-    
-    // ★ 추가됨: Builder를 통해 모델을 생성하는 생성자
     EngineModel(EngineDevice& device, const EngineModel::Builder& builder);
-    
     ~EngineModel();
 
     EngineModel(const EngineModel&) = delete;

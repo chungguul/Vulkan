@@ -13,6 +13,7 @@ endif()
 find_package(Vulkan REQUIRED)
 find_package(glfw3 REQUIRED)
 find_package(glm REQUIRED)
+find_package(assimp REQUIRED)
 
 # --- 셰이더 자동 컴파일 세팅 ---
 set(GLSLC "/Users/dohyun/VulkanSDK/1.4.341.1/macOS/bin/glslc")
@@ -44,5 +45,5 @@ add_dependencies(${PROJECT_NAME} CompileShaders)
 
 # src 폴더를 헤더 검색 경로에 추가합니다.
 target_include_directories(${PROJECT_NAME} PRIVATE src ${Vulkan_INCLUDE_DIRS})
-target_link_libraries(${PROJECT_NAME} Vulkan::Vulkan glfw glm::glm)
+target_link_libraries(${PROJECT_NAME} Vulkan::Vulkan glfw glm::glm assimp::assimp)
 
