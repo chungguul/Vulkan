@@ -8,6 +8,8 @@
 #include "KeyboardMovementController.hpp"
 #include "EngineBuffer.hpp"
 #include "EngineDescriptorManager.hpp"
+#include "EngineTexture.hpp"
+
 #include <iostream>
 #include <chrono>
 #include <vector>
@@ -35,7 +37,7 @@ int main() {
     EngineDevice device{window};
     EngineSwapChain swapChain{device, WIDTH, HEIGHT};    //스왑체인
 
-    //디스크립터 세팅
+    //UBO 세팅
     EngineBuffer uboBuffer{
         device, 
         sizeof(GlobalUbo), 
@@ -44,9 +46,18 @@ int main() {
     };
     uboBuffer.map(); // 루프를 돌면서 썼다 지웠다 하지 않고, 계속 연결해 둡니다 (Persistent Mapping)
 
+    //텍스처 세팅
+    std::cout << "텍스처 로딩 중..." << std::endl;
+    EngineTexture myTexture{device, "../textures/wood1.jpg"};
+    
+    VkDescriptorImageInfo imageInfo{};
+    imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    imageInfo.imageView = myTexture.getImageView();
+    imageInfo.sampler = myTexture.getSampler();
+
     // ★ 2. 디스크립터 매니저 생성 및 세팅 (두 줄 컷!)
     EngineDescriptorManager descriptorManager{device};
-    descriptorManager.allocateGlobalDescriptorSet(uboBuffer.descriptorInfo());
+    descriptorManager.allocateGlobalDescriptorSet(uboBuffer.descriptorInfo(),imageInfo);
 
     VkPushConstantRange pushConstantRange{};
     pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT; 
@@ -60,11 +71,11 @@ int main() {
     std::cout << "모델 로딩 중..." << std::endl;
     EngineModel::Builder pyramidBuilder{};
     // 경로는 실행 파일 위치 기준(build 폴더)이므로 부모 폴더의 models를 가리킵니다.
-    pyramidBuilder.loadModel("../models/pyramid.obj"); 
+    pyramidBuilder.loadModel("../models/cube.obj"); 
     auto pyramidModel = std::make_shared<EngineModel>(device, pyramidBuilder);
     std::cout << "모델 로딩 완료!" << std::endl;
 
-    // 게임 오브젝트들에게 피라미드 모델을 장착시켜 줍니다!
+    // 게임 오브젝트들에게 큐브 모델을 장착시켜 줍니다!
     std::vector<EngineGameObject> gameObjects;
 
     auto obj1 = EngineGameObject::createGameObject();

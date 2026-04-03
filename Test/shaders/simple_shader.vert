@@ -3,11 +3,13 @@
 layout(location = 0) in vec3 inPosition;
 layout(location = 1) in vec3 inColor;
 layout(location = 2) in vec3 inNormal; // 추가된 속성
+layout(location = 3) in vec2 inUV;
 
 // 프래그먼트 셰이더로 넘겨줄 데이터들
 layout(location = 0) out vec3 fragColor;
 layout(location = 1) out vec3 fragPosWorld;
 layout(location = 2) out vec3 fragNormalWorld;
+layout(location = 3) out vec2 fragUV;
 
 layout(set = 0, binding = 0) uniform GlobalUbo {
     mat4 projectionViewMatrix;
@@ -29,4 +31,6 @@ void main() {
 
     // 표면의 방향(법선)도 물체와 함께 회전시킵니다.
     fragNormalWorld = normalize(mat3(push.modelMatrix) * inNormal);
+
+    fragUV = inUV;
 }

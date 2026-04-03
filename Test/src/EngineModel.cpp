@@ -50,6 +50,16 @@ void EngineModel::Builder::loadModel(const std::string& filepath) {
             } else {
                 vertex.normal = {0.0f, 1.0f, 0.0f}; // 파일에 법선이 없으면 임시로 위쪽을 보게 함
             }
+            // 4. UV(TexCoord) 데이터 파싱 추가
+            if (index.texcoord_index >= 0) {
+                vertex.uv = {
+                    attrib.texcoords[2 * index.texcoord_index + 0],
+                    // Vulkan은 이미지의 Y축이 반대이므로 1.0에서 빼주어 뒤집습니다.
+                    1.0f - attrib.texcoords[2 * index.texcoord_index + 1] 
+                };
+            } else {
+                vertex.uv = {0.0f, 0.0f};
+            }
 
             vertices.push_back(vertex);
             // 정점 중복 제거(Hash)는 나중으로 미루고, 우선은 순서대로 인덱스를 붙여줍니다.
@@ -72,7 +82,7 @@ VkVertexInputBindingDescription Vertex::getBindingDescription() {
 }
 
 std::vector<VkVertexInputAttributeDescription> Vertex::getAttributeDescriptions() {
-    std::vector<VkVertexInputAttributeDescription> attributeDescriptions(3);
+    std::vector<VkVertexInputAttributeDescription> attributeDescriptions(4);
     // 위치(Position) 데이터 설명
     attributeDescriptions[0].binding = 0;
     attributeDescriptions[0].location = 0;
@@ -88,6 +98,11 @@ std::vector<VkVertexInputAttributeDescription> Vertex::getAttributeDescriptions(
     attributeDescriptions[2].location = 2; // 셰이더의 location = 2 에 매핑
     attributeDescriptions[2].format = VK_FORMAT_R32G32B32_SFLOAT;
     attributeDescriptions[2].offset = offsetof(Vertex, normal);
+    // 텍스쳐(UV) 데이터 설명
+    attributeDescriptions[3].binding = 0;
+    attributeDescriptions[3].location = 3; // 셰이더의 location = 3
+    attributeDescriptions[3].format = VK_FORMAT_R32G32_SFLOAT; // vec2이므로 R32G32
+    attributeDescriptions[3].offset = offsetof(Vertex, uv);
     
     return attributeDescriptions;
 }

@@ -10,7 +10,7 @@ public:
     EngineDescriptorManager(const EngineDescriptorManager&) = delete;
     EngineDescriptorManager& operator=(const EngineDescriptorManager&) = delete;
 
-    void allocateGlobalDescriptorSet(VkDescriptorBufferInfo bufferInfo);
+    void allocateGlobalDescriptorSet(VkDescriptorBufferInfo bufferInfo, VkDescriptorImageInfo imageInfo);
 
     VkDescriptorSetLayout getGlobalSetLayout() const { return globalSetLayout; }
     VkDescriptorSet getGlobalDescriptorSet() const { return globalDescriptorSet; }
