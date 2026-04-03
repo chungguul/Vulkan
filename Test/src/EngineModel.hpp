@@ -6,9 +6,13 @@
 #include <glm/glm.hpp>
 #include <vector>
 #include <string>
+#include <map>
 
 // 최대 영향을 받을 수 있는 뼈대 개수 제한
 #define MAX_BONE_INFLUENCE 4
+
+struct aiMesh;
+struct aiScene;
 
 struct Vertex {
     glm::vec3 position;
@@ -23,13 +27,26 @@ struct Vertex {
     static std::vector<VkVertexInputAttributeDescription> getAttributeDescriptions();
 };
 
+struct BoneInfo {
+    int id;
+    glm::mat4 offset; // 정점을 뼈의 로컬 공간으로 변환하는 행렬
+};
+
 class EngineModel {
 public:
     struct Builder {
         std::vector<Vertex> vertices{};
         std::vector<uint32_t> indices{};
         
+        std::map<std::string, BoneInfo> boneInfoMap{};
+        int boneCounter = 0;
+
         void loadModel(const std::string& filepath);
+
+    private:
+        void extractBoneWeightForVertices(aiMesh* mesh, const aiScene* scene);
+        void setVertexBoneData(Vertex& vertex, int boneID, float weight);
+
     };
 
     EngineModel(EngineDevice& device, const EngineModel::Builder& builder);

@@ -6,6 +6,16 @@
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
 
+static glm::mat4 convertMatrixToGLMFormat(const aiMatrix4x4& from) {
+    glm::mat4 to;
+    // Assimp는 Row-major, GLM은 Column-major이므로 행과 열을 뒤집어서 복사합니다.
+    to[0][0] = from.a1; to[1][0] = from.a2; to[2][0] = from.a3; to[3][0] = from.a4;
+    to[0][1] = from.b1; to[1][1] = from.b2; to[2][1] = from.b3; to[3][1] = from.b4;
+    to[0][2] = from.c1; to[1][2] = from.c2; to[2][2] = from.c3; to[3][2] = from.c4;
+    to[0][3] = from.d1; to[1][3] = from.d2; to[2][3] = from.d3; to[3][3] = from.d4;
+    return to;
+}
+
 void EngineModel::Builder::loadModel(const std::string& filepath) {
     Assimp::Importer importer;
     // aiProcess_Triangulate: 다각형을 무조건 삼각형으로 쪼갬
@@ -49,6 +59,9 @@ void EngineModel::Builder::loadModel(const std::string& filepath) {
 
         vertices.push_back(vertex);
     }
+    
+    //정점들이 모두 만들어진 후, 뼈대 가중치를 덮어씌웁니다.
+    extractBoneWeightForVertices(mesh, scene);
 
     // 인덱스 데이터 읽기 (각 삼각형 면(Face)의 인덱스)
     for (unsigned int i = 0; i < mesh->mNumFaces; i++) {
@@ -212,5 +225,53 @@ void EngineModel::draw(VkCommandBuffer commandBuffer) {
         vkCmdDrawIndexed(commandBuffer, indexCount, 1, 0, 0, 0);
     } else {
         vkCmdDraw(commandBuffer, vertexCount, 1, 0, 0);
+    }
+}
+
+void EngineModel::Builder::setVertexBoneData(Vertex& vertex, int boneID, float weight) {
+    for (int i = 0; i < MAX_BONE_INFLUENCE; ++i) {
+        if (vertex.boneIDs[i] < 0) { // 빈 칸을 찾으면
+            vertex.boneWeights[i] = weight;
+            vertex.boneIDs[i] = boneID;
+            break; // 하나 넣었으면 다음 뼈대를 위해 탈출!
+        }
+    }
+}
+
+void EngineModel::Builder::extractBoneWeightForVertices(aiMesh* mesh, const aiScene* scene) {
+    for (int boneIndex = 0; boneIndex < mesh->mNumBones; ++boneIndex) {
+        int boneID = -1;
+        std::string boneName = mesh->mBones[boneIndex]->mName.C_Str();
+
+        // 처음 보는 뼈라면 Map에 새로 등록
+        if (boneInfoMap.find(boneName) == boneInfoMap.end()) {
+            BoneInfo newBoneInfo;
+            newBoneInfo.id = boneCounter;
+            newBoneInfo.offset = convertMatrixToGLMFormat(mesh->mBones[boneIndex]->mOffsetMatrix);
+            
+            boneInfoMap[boneName] = newBoneInfo;
+            boneID = boneCounter;
+            boneCounter++;
+        } else { // 이미 등록된 뼈라면 ID만 가져옴
+            boneID = boneInfoMap[boneName].id;
+        }
+
+        assert(boneID != -1);
+
+        // 이 뼈가 영향을 주는 모든 정점(Vertex)을 찾아가서 가중치를 주사합니다!
+        aiVector3D* aiWeights = mesh->mVertices;
+        aiBone* bone = mesh->mBones[boneIndex];
+        
+        for (int weightIndex = 0; weightIndex < bone->mNumWeights; ++weightIndex) {
+            int vertexId = bone->mWeights[weightIndex].mVertexId;
+            float weight = bone->mWeights[weightIndex].mWeight;
+            
+            assert(vertexId <= vertices.size());
+            
+            // 가중치가 0인 쓰레기 데이터는 무시
+            if (weight == 0.0f) continue;
+
+            setVertexBoneData(vertices[vertexId], boneID, weight);
+        }
     }
 }
