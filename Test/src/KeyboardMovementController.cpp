@@ -1,6 +1,6 @@
 #include "KeyboardMovementController.hpp"
 
-void KeyboardMovementController::moveInPlaneXZ(GLFWwindow* window, float dt, EngineGameObject& gameObject) {
+bool KeyboardMovementController::moveInPlaneXZ(GLFWwindow* window, float dt, EngineGameObject& gameObject) {
     glm::vec3 rotate{0};
     
     // 1. 방향키 입력으로 고개 돌리기 (회전)
@@ -27,7 +27,7 @@ void KeyboardMovementController::moveInPlaneXZ(GLFWwindow* window, float dt, Eng
     const glm::vec3 upDir{0.f, -1.f, 0.f}; // Vulkan은 Y축이 아래를 향하므로 -1
 
     glm::vec3 moveDir{0.f};
-    if (glfwGetKey(window, keys.moveForward) == GLFW_PRESS) moveDir -= forwardDir; // 앞으로 가려면 빼야함
+    if (glfwGetKey(window   , keys.moveForward) == GLFW_PRESS) moveDir -= forwardDir; // 앞으로 가려면 빼야함
     if (glfwGetKey(window, keys.moveBackward) == GLFW_PRESS) moveDir += forwardDir; // 뒤로 가려면 더해야함
     if (glfwGetKey(window, keys.moveRight) == GLFW_PRESS) moveDir += rightDir;
     if (glfwGetKey(window, keys.moveLeft) == GLFW_PRESS) moveDir -= rightDir;
@@ -37,5 +37,8 @@ void KeyboardMovementController::moveInPlaneXZ(GLFWwindow* window, float dt, Eng
     // 이동 적용
     if (glm::dot(moveDir, moveDir) > std::numeric_limits<float>::epsilon()) {
         gameObject.transform.translation += moveSpeed * dt * glm::normalize(moveDir);
+        return true;
     }
+
+    return false;
 }

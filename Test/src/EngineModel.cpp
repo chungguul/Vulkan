@@ -18,9 +18,6 @@ static glm::mat4 convertMatrixToGLMFormat(const aiMatrix4x4& from) {
 
 void EngineModel::Builder::loadModel(const std::string& filepath) {
     Assimp::Importer importer;
-    // aiProcess_Triangulate: 다각형을 무조건 삼각형으로 쪼갬
-    // aiProcess_FlipUVs: Vulkan의 Y축 반전에 맞춰 UV를 뒤집음
-    // aiProcess_GenNormals: 법선이 없으면 자동으로 생성해 줌
     const aiScene* scene = importer.ReadFile(filepath, 
         aiProcess_Triangulate | aiProcess_FlipUVs | aiProcess_GenNormals);
 
@@ -31,49 +28,42 @@ void EngineModel::Builder::loadModel(const std::string& filepath) {
     vertices.clear();
     indices.clear();
 
-    // 현재는 첫 번째 메쉬(Mesh)만 읽어옵니다. (나중에는 재귀적으로 모든 노드를 순회하게 고칠 예정입니다)
-    aiMesh* mesh = scene->mMeshes[0];
+    //파일 안의 모든 부품(메쉬)을 순회합니다.
+    for (unsigned int m = 0; m < scene->mNumMeshes; m++) {
+        aiMesh* mesh = scene->mMeshes[m];
+        
+        // 현재 메쉬의 정점들이 시작될 위치 (오프셋)
+        uint32_t vertexOffset = static_cast<uint32_t>(vertices.size());
 
-    for (unsigned int i = 0; i < mesh->mNumVertices; i++) {
-        Vertex vertex{};
-
-        // 1. 위치
-        vertex.position = { mesh->mVertices[i].x, mesh->mVertices[i].y, mesh->mVertices[i].z };
-
-        // 2. 법선
-        if (mesh->HasNormals()) {
-            vertex.normal = { mesh->mNormals[i].x, mesh->mNormals[i].y, mesh->mNormals[i].z };
+        // --- 정점 파싱 ---
+        for (unsigned int i = 0; i < mesh->mNumVertices; i++) {
+            Vertex vertex{};
+            vertex.position = { mesh->mVertices[i].x, mesh->mVertices[i].y, mesh->mVertices[i].z };
+            if (mesh->HasNormals()) vertex.normal = { mesh->mNormals[i].x, mesh->mNormals[i].y, mesh->mNormals[i].z };
+            if (mesh->mTextureCoords[0]) vertex.uv = { mesh->mTextureCoords[0][i].x, mesh->mTextureCoords[0][i].y };
+            else vertex.uv = { 0.0f, 0.0f };
+            vertex.color = { 1.0f, 1.0f, 1.0f };
+            
+            vertices.push_back(vertex);
         }
 
-        // 3. 텍스처 UV 좌표
-        if (mesh->mTextureCoords[0]) {
-            vertex.uv = { mesh->mTextureCoords[0][i].x, mesh->mTextureCoords[0][i].y };
-        } else {
-            vertex.uv = { 0.0f, 0.0f };
-        }
+        // --- 뼈대 가중치 추출 (오프셋 같이 넘겨주기) ---
+        extractBoneWeightForVertices(mesh, scene, vertexOffset);
 
-        // 4. 색상 (기본값 흰색)
-        vertex.color = { 1.0f, 1.0f, 1.0f };
-
-        // (뼈대 데이터는 나중에 애니메이션 데이터를 파싱할 때 채워넣을 예정이므로 지금은 기본값 유지)
-
-        vertices.push_back(vertex);
-    }
-    
-    //정점들이 모두 만들어진 후, 뼈대 가중치를 덮어씌웁니다.
-    extractBoneWeightForVertices(mesh, scene);
-
-    // 인덱스 데이터 읽기 (각 삼각형 면(Face)의 인덱스)
-    for (unsigned int i = 0; i < mesh->mNumFaces; i++) {
-        aiFace face = mesh->mFaces[i];
-        for (unsigned int j = 0; j < face.mNumIndices; j++) {
-            indices.push_back(face.mIndices[j]);
+        // --- 인덱스 파싱 ---
+        for (unsigned int i = 0; i < mesh->mNumFaces; i++) {
+            aiFace face = mesh->mFaces[i];
+            for (unsigned int j = 0; j < face.mNumIndices; j++) {
+                // ★ 수정됨: 인덱스에도 정점 오프셋을 더해주어야 올바른 정점을 가리킵니다.
+                indices.push_back(face.mIndices[j] + vertexOffset);
+            }
         }
     }
 }
 
-
-EngineModel::EngineModel(EngineDevice& device, const EngineModel::Builder& builder) : engineDevice{device} {
+EngineModel::EngineModel(EngineDevice& device, const EngineModel::Builder& builder) 
+    : engineDevice{device}, boneInfoMap{builder.boneInfoMap}, boneCounter{builder.boneCounter} {
+    
     createVertexBuffers(builder.vertices);
     createIndexBuffers(builder.indices);
 }
@@ -238,7 +228,7 @@ void EngineModel::Builder::setVertexBoneData(Vertex& vertex, int boneID, float w
     }
 }
 
-void EngineModel::Builder::extractBoneWeightForVertices(aiMesh* mesh, const aiScene* scene) {
+void EngineModel::Builder::extractBoneWeightForVertices(aiMesh* mesh, const aiScene* scene, uint32_t vertexOffset) {
     for (int boneIndex = 0; boneIndex < mesh->mNumBones; ++boneIndex) {
         int boneID = -1;
         std::string boneName = mesh->mBones[boneIndex]->mName.C_Str();
@@ -263,7 +253,7 @@ void EngineModel::Builder::extractBoneWeightForVertices(aiMesh* mesh, const aiSc
         aiBone* bone = mesh->mBones[boneIndex];
         
         for (int weightIndex = 0; weightIndex < bone->mNumWeights; ++weightIndex) {
-            int vertexId = bone->mWeights[weightIndex].mVertexId;
+            int vertexId = bone->mWeights[weightIndex].mVertexId + vertexOffset;
             float weight = bone->mWeights[weightIndex].mWeight;
             
             assert(vertexId <= vertices.size());

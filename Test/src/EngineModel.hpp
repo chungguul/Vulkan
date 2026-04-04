@@ -44,7 +44,7 @@ public:
         void loadModel(const std::string& filepath);
 
     private:
-        void extractBoneWeightForVertices(aiMesh* mesh, const aiScene* scene);
+        void extractBoneWeightForVertices(aiMesh* mesh, const aiScene* scene, uint32_t vertexOffset);
         void setVertexBoneData(Vertex& vertex, int boneID, float weight);
 
     };
@@ -57,6 +57,9 @@ public:
 
     void bind(VkCommandBuffer commandBuffer);
     void draw(VkCommandBuffer commandBuffer);
+
+    const std::map<std::string, BoneInfo>& getBoneInfoMap() const { return boneInfoMap; }
+    int getBoneCount() const { return boneCounter; }
 
 private:
     void createVertexBuffers(const std::vector<Vertex>& vertices);
@@ -71,4 +74,7 @@ private:
     VkBuffer indexBuffer;
     VkDeviceMemory indexBufferMemory;
     uint32_t indexCount;
+
+    std::map<std::string, BoneInfo> boneInfoMap{};
+    int boneCounter = 0;
 };

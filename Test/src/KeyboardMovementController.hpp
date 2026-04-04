@@ -18,7 +18,7 @@ public:
         int lookDown = GLFW_KEY_DOWN;
     };
 
-    void moveInPlaneXZ(GLFWwindow* window, float dt, EngineGameObject& gameObject);
+    bool moveInPlaneXZ(GLFWwindow* window, float dt, EngineGameObject& gameObject);
 
     KeyMappings keys{};
     float moveSpeed{3.f}; // 이동 속도

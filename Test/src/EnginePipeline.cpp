@@ -110,8 +110,8 @@ void EnginePipeline::createGraphicsPipeline(const std::string& vertFilepath, con
     rasterizer.polygonMode = VK_POLYGON_MODE_FILL; // 안을 채움
     rasterizer.lineWidth = 1.0f;
     // 뒷면을 안 그리는 컬링(Culling) 설정. 지금은 안전하게 끕니다.
-    rasterizer.cullMode = VK_CULL_MODE_NONE; 
-    rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE;
+    rasterizer.cullMode = VK_CULL_MODE_BACK_BIT; 
+    rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 
     // 6. 멀티샘플링 (안티앨리어싱 - 지금은 꺼둡니다)
     VkPipelineMultisampleStateCreateInfo multisampling{};
@@ -143,7 +143,7 @@ void EnginePipeline::createGraphicsPipeline(const std::string& vertFilepath, con
     VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
     pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     
-    //디스크립터 레이아웃(규격)을 파이프라인에 연결합니다.
+    // ★ 디스크립터 레이아웃(규격)을 파이프라인에 연결합니다.
     pipelineLayoutInfo.setLayoutCount = static_cast<uint32_t>(descriptorSetLayouts.size());
     pipelineLayoutInfo.pSetLayouts = descriptorSetLayouts.data();
 

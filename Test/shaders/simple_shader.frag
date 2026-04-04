@@ -32,7 +32,7 @@ void main() {
     float diffuseIntensity = max(dot(surfaceNormal, lightDir), 0.0); // 0.0 이하(뒷면)는 완전한 그림자로 처리
     vec3 diffuseLight = ubo.lightColor.rgb * ubo.lightColor.a * diffuseIntensity;
 
-    // 3. 최종 색상 = 텍스쳐 색 * (앰비언트 + 디퓨즈)
+    // 3. 최종 색상 = 텍스처 색상 * (앰비언트 + 디퓨즈)
     vec3 finalColor = textureColor * (ambientLight + diffuseLight);
 
     outColor = vec4(finalColor, 1.0);
