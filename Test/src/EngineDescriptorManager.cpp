@@ -20,7 +20,7 @@ EngineDescriptorManager::EngineDescriptorManager(EngineDevice& device) : engineD
 
     VkDescriptorSetLayoutCreateInfo layoutInfo{};
     layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    layoutInfo.bindingCount = static_cast<u_int32_t>(bindings.size());
+    layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
     layoutInfo.pBindings = bindings.data();
 
     if (vkCreateDescriptorSetLayout(engineDevice.getDevice(), &layoutInfo, nullptr, &globalSetLayout) != VK_SUCCESS) {
@@ -35,7 +35,7 @@ EngineDescriptorManager::EngineDescriptorManager(EngineDevice& device) : engineD
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    poolInfo.poolSizeCount = static_cast<u_int32_t>(poolSizes.size());
+    poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
     poolInfo.pPoolSizes = poolSizes.data();
     poolInfo.maxSets = 1;
 

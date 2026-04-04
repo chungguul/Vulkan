@@ -1,5 +1,6 @@
 #include "EngineModel.hpp"
 #include <cstring>
+#include <stdexcept>
 
 #define TINYOBJLOADER_IMPLEMENTATION
 #include <assimp/Importer.hpp>

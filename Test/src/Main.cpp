@@ -82,11 +82,11 @@ int main() {
 
     // 애니메이션 로딩 및 애니메이터 생성
     std::cout << "애니메이션 로딩 중..." << std::endl;
-// 1. 숨쉬기(Idle) 애니메이션 (기존 원본 FBX 사용)
+    // 1. 숨쉬기(Idle) 애니메이션 (기존 원본 FBX 사용)
     EngineAnimation idleAnimation{"../models/KedamaKorone.fbx", kedamaModel.get()};
     
     // 2. 걷기(Walk) 애니메이션 (새로 받은 뼈대 전용 FBX 사용)
-    EngineAnimation walkAnimation{"../models/Korone_Walk.fbx", kedamaModel.get()};
+    //EngineAnimation walkAnimation{"../models/Korone_Walk.fbx", kedamaModel.get()};
     
     // 애니메이터 생성 시 기본 상태를 Idle로 설정
     EngineAnimator animator{&idleAnimation};    std::cout << "애니메이션 세팅 완료!" << std::endl;
@@ -140,7 +140,7 @@ int main() {
         // ★ 2. 애니메이션 상태 전이 (State Machine)
         if (isMoving && !wasMoving) {
             // 멈춰있다가 방금 걷기 시작함 -> Walk 애니메이션 재생
-            animator.playAnimation(&walkAnimation);
+            //animator.playAnimation(&walkAnimation);
             wasMoving = true;
         } else if (!isMoving && wasMoving) {
             // 걷다가 방금 멈춤 -> Idle 애니메이션 재생
