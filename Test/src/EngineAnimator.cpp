@@ -21,7 +21,11 @@ void EngineAnimator::updateAnimation(float dt) {
         currentTime = fmod(currentTime, currentAnimation->getDuration());
         
         // 3. 최상위 뼈대(Root)부터 변환 계산 시작
-        calculateBoneTransform(&currentAnimation->getRootNode(), glm::mat4(1.0f));
+        // ★ 부활: 최상위 노드의 기괴한 스케일/회전을 취소시키기 위한 역행렬 생성
+        glm::mat4 globalInverseTransform = glm::inverse(currentAnimation->getRootNode().transformation);
+        
+        // ★ 수정: 1.0f 대신, 역행렬을 부모로 넘겨주어 스파게티 현상을 차단합니다.
+        calculateBoneTransform(&currentAnimation->getRootNode(), globalInverseTransform);
     }
 }
 

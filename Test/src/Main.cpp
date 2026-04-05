@@ -34,8 +34,8 @@ struct SimplePushConstantData {
     glm::mat4 modelMatrix{1.0f}; 
 };
 
-const int WIDTH = 1280;
-const int HEIGHT = 800;
+const int WIDTH = 1920;
+const int HEIGHT = 1080;
 
 int main() {
     EngineWindow window{WIDTH, HEIGHT, "Vulkan Engine"};
@@ -86,7 +86,7 @@ int main() {
     EngineAnimation idleAnimation{"../models/KedamaKorone.fbx", kedamaModel.get()};
     
     // 2. 걷기(Walk) 애니메이션 (새로 받은 뼈대 전용 FBX 사용)
-    //EngineAnimation walkAnimation{"../models/Korone_Walk.fbx", kedamaModel.get()};
+    EngineAnimation walkAnimation{"../models/Walking.fbx", kedamaModel.get()};
     
     // 애니메이터 생성 시 기본 상태를 Idle로 설정
     EngineAnimator animator{&idleAnimation};    std::cout << "애니메이션 세팅 완료!" << std::endl;
@@ -97,8 +97,10 @@ int main() {
     auto obj1 = EngineGameObject::createGameObject();
     obj1.model = kedamaModel; // 캐릭터 장착
     obj1.transform.translation = {0.0f, 0.0f, 0.0f};
-    //obj1.transform.rotation = {-glm::radians(90.0f), 0.0f, 0.0f};
-    obj1.transform.scale = {0.03f, 0.03f, 0.03f}; 
+    obj1.transform.rotation = {0.0f, 0.0f, 0.0f};
+    obj1.transform.scale = {0.01f, 0.01f, 0.01f};
+    //obj1.transform.scale = {1.0f, 1.0f, 1.0f};
+
     gameObjects.push_back(std::move(obj1));
 
     // 플레이어의 눈이 되어줄 "뷰어(Viewer)" 게임 오브젝트를 만듭니다.
@@ -135,22 +137,32 @@ int main() {
         currentTime = newTime;
 
         // ★ 키보드 입력을 받아 뷰어 오브젝트를 움직입니다!
-        bool isMoving = cameraController.moveInPlaneXZ(window.getGLFWwindow(), frameTime, gameObjects[0]);
-        
+        //bool isMoving = cameraController.moveInPlaneXZ(window.getGLFWwindow(), frameTime, gameObjects[0]);
+        cameraController.moveInPlaneXZ(window.getGLFWwindow(), frameTime, viewerObject);
+
         // ★ 2. 애니메이션 상태 전이 (State Machine)
-        if (isMoving && !wasMoving) {
-            // 멈춰있다가 방금 걷기 시작함 -> Walk 애니메이션 재생
-            //animator.playAnimation(&walkAnimation);
-            wasMoving = true;
-        } else if (!isMoving && wasMoving) {
-            // 걷다가 방금 멈춤 -> Idle 애니메이션 재생
-            animator.playAnimation(&idleAnimation);
-            wasMoving = false;
-        }
+        // if (isMoving && !wasMoving) {
+        //     // 멈춰있다가 방금 걷기 시작함 -> Walk 애니메이션 재생
+        //     animator.playAnimation(&walkAnimation);
+        //     wasMoving = true;
+        // } else if (!isMoving && wasMoving) {
+        //     // 걷다가 방금 멈춤 -> Idle 애니메이션 재생
+        //     animator.playAnimation(&idleAnimation);
+        //     wasMoving = false;
+        // }
+
+        animator.playAnimation(&idleAnimation);
+
 
         // 카메라 세팅 (카메라는 고정된 뷰어 오브젝트의 위치를 그대로 씁니다)
+        //glm::vec3 targetPos = gameObjects[0].transform.translation;
+        //targetPos.y -= 0.5f; // 캐릭터의 중심(살짝 위)을 바라보도록 높이 조정 (Vulkan은 -Y가 위쪽)
+        
+        // 캐릭터의 등 뒤(-2.5)와 살짝 위(-0.5)에 카메라 위치 설정
+        glm::vec3 cameraPos = glm::vec3(0.0f, -0.5f, -2.5f);
+        
+        //camera.setViewTarget(cameraPos, targetPos);
         camera.setViewYXZ(viewerObject.transform.translation, viewerObject.transform.rotation);
-
         // ★ 3. 애니메이터 업데이트 및 UBO 전송 (기존과 동일)
         animator.updateAnimation(frameTime);
         
@@ -203,9 +215,6 @@ int main() {
 
         // ★ 투영 행렬과 뷰 행렬을 미리 곱해둠 (P * V) ★
         auto projectionView = camera.getProjection() * camera.getView();
-
-        //애니메이터 업데이트 delta time만큼 애니메이션 진행
-        animator.updateAnimation(frameTime);
 
         //오브젝트를 그리기 전 1회 UBO데이터 업데이트
         GlobalUbo ubo{};

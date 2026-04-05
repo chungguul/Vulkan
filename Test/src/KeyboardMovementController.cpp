@@ -27,7 +27,7 @@ bool KeyboardMovementController::moveInPlaneXZ(GLFWwindow* window, float dt, Eng
     const glm::vec3 upDir{0.f, -1.f, 0.f}; // Vulkan은 Y축이 아래를 향하므로 -1
 
     glm::vec3 moveDir{0.f};
-    if (glfwGetKey(window   , keys.moveForward) == GLFW_PRESS) moveDir -= forwardDir; // 앞으로 가려면 빼야함
+    if (glfwGetKey(window, keys.moveForward) == GLFW_PRESS) moveDir -= forwardDir; // 앞으로 가려면 빼야함
     if (glfwGetKey(window, keys.moveBackward) == GLFW_PRESS) moveDir += forwardDir; // 뒤로 가려면 더해야함
     if (glfwGetKey(window, keys.moveRight) == GLFW_PRESS) moveDir += rightDir;
     if (glfwGetKey(window, keys.moveLeft) == GLFW_PRESS) moveDir -= rightDir;
@@ -35,9 +35,19 @@ bool KeyboardMovementController::moveInPlaneXZ(GLFWwindow* window, float dt, Eng
     if (glfwGetKey(window, keys.moveDown) == GLFW_PRESS) moveDir -= upDir;
 
     // 이동 적용
-    if (glm::dot(moveDir, moveDir) > std::numeric_limits<float>::epsilon()) {
-        gameObject.transform.translation += moveSpeed * dt * glm::normalize(moveDir);
-        return true;
+    if (glm::dot(moveDir, moveDir) > glm::epsilon<float>()) {
+        // 1. 이동 벡터 정규화
+        glm::vec3 normalizedDir = glm::normalize(moveDir);
+        
+        // 2. 위치 이동 (기존 코드)
+        gameObject.transform.translation += moveSpeed * dt * normalizedDir;
+        
+        // ★ 3. 방향 전환 (새로 추가!)
+        // 캐릭터가 이동하는 방향(normalizedDir)을 바라보도록 Y축 회전값을 계산합니다.
+        // atan2 함수를 사용하여 X, Z 좌표를 기반으로 라디안 각도를 구합니다.
+        //gameObject.transform.rotation.y = glm::atan(normalizedDir.x, normalizedDir.z);
+
+        return true; 
     }
 
     return false;
