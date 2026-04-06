@@ -114,8 +114,12 @@ int main() {
     registry.emplace<ModelComponent>(koroneEntity, kedamaModel);
 
     //rigid body 부착
-    uint32_t koroneBodyID = physicsEngine.createBox(koroneTransform.translation, glm::vec3(0.5f, 0.5f, 0.5f), true);
-    registry.emplace<RigidBodyComponent>(koroneEntity, koroneBodyID);
+    //uint32_t koroneBodyID = physicsEngine.createBox(koroneTransform.translation, glm::vec3(0.5f, 0.5f, 0.5f), true);
+    //registry.emplace<RigidBodyComponent>(koroneEntity, koroneBodyID);
+
+    //Ragdoll 장착
+    uint32_t koroneRagdollID = physicsEngine.createSimpleRagdoll(koroneTransform.translation);
+    registry.emplace<RagdollComponent>(koroneEntity, koroneRagdollID);
 
     // 3. 뷰어(관찰자 카메라) 엔티티 생성
     auto viewerEntity = registry.create();
@@ -127,7 +131,7 @@ int main() {
 
     EngineCamera camera{};
     // 위치는 (0, 0, -2.5)로 살짝 뒤로 물러나서, (0, 0, 0) 원점을 바라보게 세팅!
-    camera.setViewTarget(glm::vec3(0.f, -3.0f, -20.0f), glm::vec3(0.f, 0.f, 0.f));
+    camera.setViewTarget(glm::vec3(0.f, 0.0f, -5.0f), glm::vec3(0.f, 10.0f, 0.f));
 
     VkCommandBufferAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -154,6 +158,7 @@ int main() {
 
         //매 프레임 물리 연산 업데이트
         physicsEngine.update(frameTime);
+
         //ECS 동기화 시스템 (Physics -> Render Transform)
         //Transform과 RigidBody를 모두 가진 엔티티만 찾음
         auto physicsView = registry.view<TransformComponent, RigidBodyComponent>();
@@ -163,6 +168,27 @@ int main() {
 
             // Jolt 물리 엔진이 계산한 '진짜 위치'를 가져와서, 렌더링용 Transform에 덮어씌웁니다!
             transform.translation = physicsEngine.getBodyPosition(rigidBody.bodyID);
+        }
+
+        // 래그돌을 가진 엔티티를 찾아서 뼈대 행렬을 업데이트합니다.
+        auto ragdollView = registry.view<TransformComponent, RagdollComponent>();
+        for (auto entity : ragdollView) {
+            auto& transform = ragdollView.get<TransformComponent>(entity);
+            auto& ragdoll = ragdollView.get<RagdollComponent>(entity);
+
+            // 우리가 몸통, 머리 딱 2개의 뼈만 만들었으므로 배열 크기는 2
+            glm::mat4 boneMatrices[2]; 
+            physicsEngine.updateRagdollBones(ragdoll.ragdollID, boneMatrices, 2);
+
+            // 1. 전체 위치(Root Transform)는 몸통(0번 뼈대)의 위치를 따라가게 합니다.
+            // 행렬의 4번째 열(3번 인덱스)이 x, y, z 위치값을 가지고 있습니다.
+            transform.translation = glm::vec3(boneMatrices[0][3][0], boneMatrices[0][3][1], boneMatrices[0][3][2]);
+
+            // 2. [선택/중요] 애니메이션 시스템(EngineAnimator) 연동
+            // 만약 셰이더(UBO)로 뼈대 행렬을 넘겨주는 애니메이션 시스템이 이미 있다면,
+            // 이 boneMatrices[0], boneMatrices[1] 값을 최종 렌더링 뼈대 배열에 덮어씌워주면 됩니다!
+            // 예: animator.setBoneMatrices(boneMatrices, 2);
+            //animator.setBoneMatrices(boneMatrices, 2);
         }
 
         // 뷰어 엔티티의 Transform 부품을 가져옵니다.
