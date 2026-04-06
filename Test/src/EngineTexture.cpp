@@ -2,48 +2,110 @@
 #include "EngineBuffer.hpp"
 #include "stb_image.h"
 #include <stdexcept>
+#include <iostream>
 
+// 1. 기본 생성자 (일반 텍스처 로딩)
 EngineTexture::EngineTexture(EngineDevice& device, const std::string& filepath) : engineDevice{device} {
+    loadFromFile(filepath);
+}
+
+// 2. 빈 생성자 (HDR 등을 나중에 수동으로 로딩할 때 사용)
+EngineTexture::EngineTexture(EngineDevice& device) : engineDevice{device} {}
+
+EngineTexture::~EngineTexture() {
+    if (textureSampler != VK_NULL_HANDLE) vkDestroySampler(engineDevice.getDevice(), textureSampler, nullptr);
+    if (textureImageView != VK_NULL_HANDLE) vkDestroyImageView(engineDevice.getDevice(), textureImageView, nullptr);
+    if (textureImage != VK_NULL_HANDLE) vkDestroyImage(engineDevice.getDevice(), textureImage, nullptr);
+    if (textureImageMemory != VK_NULL_HANDLE) vkFreeMemory(engineDevice.getDevice(), textureImageMemory, nullptr);
+}
+
+
+void EngineTexture::loadFromFile(const std::string& filepath) {
     int texWidth, texHeight, texChannels;
-    // 1. stb_image를 사용해 이미지 픽셀 데이터 로드 (알파 채널 포함 4채널 강제)
+    stbi_set_flip_vertically_on_load(false); // 일반 텍스처는 보통 뒤집지 않음
     stbi_uc* pixels = stbi_load(filepath.c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
     VkDeviceSize imageSize = texWidth * texHeight * 4;
 
-    if (!pixels) {
-        throw std::runtime_error("실패: 텍스처 이미지를 로드할 수 없습니다! 파일 경로: " + filepath);
-    }
+    if (!pixels) throw std::runtime_error("실패: 텍스처 이미지를 로드할 수 없습니다! 파일 경로: " + filepath);
 
-    // 2. 스테이징 버퍼(임시 화물칸) 생성 및 픽셀 데이터 복사
-    EngineBuffer stagingBuffer{
-        engineDevice,
-        imageSize,
-        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-    };
-    stagingBuffer.map();
-    stagingBuffer.writeToBuffer(pixels);
-    stagingBuffer.unmap();
+    VkBuffer stagingBuffer;
+    VkDeviceMemory stagingBufferMemory;
+    engineDevice.createBuffer(imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
 
-    stbi_image_free(pixels); // 임시 RAM 데이터는 이제 필요 없으므로 삭제
+    void* data;
+    vkMapMemory(engineDevice.getDevice(), stagingBufferMemory, 0, imageSize, 0, &data);
+    memcpy(data, pixels, static_cast<size_t>(imageSize));
+    vkUnmapMemory(engineDevice.getDevice(), stagingBufferMemory);
 
-    // 3. GPU 전용 이미지 메모리(VRAM) 생성
+    stbi_image_free(pixels);
+
+    VkFormat format = VK_FORMAT_R8G8B8A8_SRGB; // LDR 기본 포맷
+
+    createImage(texWidth, texHeight, format, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    transitionImageLayout(format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    copyBufferToImage(stagingBuffer, static_cast<uint32_t>(texWidth), static_cast<uint32_t>(texHeight));
+    transitionImageLayout(format, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+    vkDestroyBuffer(engineDevice.getDevice(), stagingBuffer, nullptr);
+    vkFreeMemory(engineDevice.getDevice(), stagingBufferMemory, nullptr);
+
+    createImageView(format);
+    createTextureSampler();
+}
+
+void EngineTexture::loadHDR(const std::string& filepath) {
+    int texWidth, texHeight, texChannels;
+    stbi_set_flip_vertically_on_load(true); // HDR은 상하 반전 필요
+    float* pixels = stbi_loadf(filepath.c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+    VkDeviceSize imageSize = texWidth * texHeight * 4 * sizeof(float); // Float(4바이트) 크기 반영!
+
+    if (!pixels) throw std::runtime_error("실패: HDR 텍스처를 불러올 수 없습니다! 경로: " + filepath);
+
+    VkBuffer stagingBuffer;
+    VkDeviceMemory stagingBufferMemory;
+    engineDevice.createBuffer(imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
+
+    void* data;
+    vkMapMemory(engineDevice.getDevice(), stagingBufferMemory, 0, imageSize, 0, &data);
+    memcpy(data, pixels, static_cast<size_t>(imageSize));
+    vkUnmapMemory(engineDevice.getDevice(), stagingBufferMemory);
+
+    stbi_image_free(pixels);
+
+    VkFormat hdrFormat = VK_FORMAT_R32G32B32A32_SFLOAT; // HDR 전용 32비트 포맷
+
+    createImage(texWidth, texHeight, hdrFormat, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    transitionImageLayout(hdrFormat, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    copyBufferToImage(stagingBuffer, static_cast<uint32_t>(texWidth), static_cast<uint32_t>(texHeight));
+    transitionImageLayout(hdrFormat, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+    vkDestroyBuffer(engineDevice.getDevice(), stagingBuffer, nullptr);
+    vkFreeMemory(engineDevice.getDevice(), stagingBufferMemory, nullptr);
+
+    createImageView(hdrFormat);
+    createTextureSampler();
+    
+    std::cout << "성공: HDR 텍스처 로딩 완료! (" << texWidth << "x" << texHeight << ")" << std::endl;
+}
+
+void EngineTexture::createImage(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties) {
     VkImageCreateInfo imageInfo{};
     imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     imageInfo.imageType = VK_IMAGE_TYPE_2D;
-    imageInfo.extent.width = static_cast<uint32_t>(texWidth);
-    imageInfo.extent.height = static_cast<uint32_t>(texHeight);
+    imageInfo.extent.width = width;
+    imageInfo.extent.height = height;
     imageInfo.extent.depth = 1;
     imageInfo.mipLevels = 1;
     imageInfo.arrayLayers = 1;
-    imageInfo.format = VK_FORMAT_R8G8B8A8_SRGB; // 표준 색상 포맷
-    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+    imageInfo.format = format;
+    imageInfo.tiling = tiling;
     imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    imageInfo.usage = usage;
     imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
 
     if (vkCreateImage(engineDevice.getDevice(), &imageInfo, nullptr, &textureImage) != VK_SUCCESS) {
-        throw std::runtime_error("실패: 텍스처 이미지 생성 오류!");
+        throw std::runtime_error("실패: 이미지 생성 오류!");
     }
 
     VkMemoryRequirements memRequirements;
@@ -52,24 +114,20 @@ EngineTexture::EngineTexture(EngineDevice& device, const std::string& filepath) 
     VkMemoryAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     allocInfo.allocationSize = memRequirements.size;
-    allocInfo.memoryTypeIndex = engineDevice.findMemoryType(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    allocInfo.memoryTypeIndex = engineDevice.findMemoryType(memRequirements.memoryTypeBits, properties);
 
     if (vkAllocateMemory(engineDevice.getDevice(), &allocInfo, nullptr, &textureImageMemory) != VK_SUCCESS) {
         throw std::runtime_error("실패: 텍스처 메모리 할당 오류!");
     }
     vkBindImageMemory(engineDevice.getDevice(), textureImage, textureImageMemory, 0);
+}
 
-    // 4. 버퍼에서 이미지로 데이터 복사 (Layout 변환 -> 복사 -> Layout 변환)
-    transitionImageLayout(VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-    copyBufferToImage(stagingBuffer.getBuffer(), static_cast<uint32_t>(texWidth), static_cast<uint32_t>(texHeight));
-    transitionImageLayout(VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-
-    // 5. 이미지 뷰 생성 (셰이더가 볼 수 있는 렌즈)
+void EngineTexture::createImageView(VkFormat format) {
     VkImageViewCreateInfo viewInfo{};
     viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     viewInfo.image = textureImage;
     viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    viewInfo.format = VK_FORMAT_R8G8B8A8_SRGB;
+    viewInfo.format = format;
     viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     viewInfo.subresourceRange.baseMipLevel = 0;
     viewInfo.subresourceRange.levelCount = 1;
@@ -79,16 +137,17 @@ EngineTexture::EngineTexture(EngineDevice& device, const std::string& filepath) 
     if (vkCreateImageView(engineDevice.getDevice(), &viewInfo, nullptr, &textureImageView) != VK_SUCCESS) {
         throw std::runtime_error("실패: 텍스처 이미지 뷰 생성 오류!");
     }
+}
 
-    // 6. 텍스처 샘플러 생성 (확대/축소 시 이미지를 어떻게 부드럽게 처리할지 설정)
+void EngineTexture::createTextureSampler() {
     VkSamplerCreateInfo samplerInfo{};
     samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    samplerInfo.magFilter = VK_FILTER_LINEAR; // 확대 시 부드럽게
-    samplerInfo.minFilter = VK_FILTER_LINEAR; // 축소 시 부드럽게
-    samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT; // 넘어가면 반복
+    samplerInfo.magFilter = VK_FILTER_LINEAR;
+    samplerInfo.minFilter = VK_FILTER_LINEAR;
+    samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
     samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
     samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    samplerInfo.anisotropyEnable = VK_FALSE; // 기본 성능을 위해 꺼둠
+    samplerInfo.anisotropyEnable = VK_FALSE;
     samplerInfo.maxAnisotropy = 1.0f;
     samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
     samplerInfo.unnormalizedCoordinates = VK_FALSE;
@@ -104,15 +163,7 @@ EngineTexture::EngineTexture(EngineDevice& device, const std::string& filepath) 
     }
 }
 
-EngineTexture::~EngineTexture() {
-    vkDestroySampler(engineDevice.getDevice(), textureSampler, nullptr);
-    vkDestroyImageView(engineDevice.getDevice(), textureImageView, nullptr);
-    vkDestroyImage(engineDevice.getDevice(), textureImage, nullptr);
-    vkFreeMemory(engineDevice.getDevice(), textureImageMemory, nullptr);
-}
-
-// 일회성 명령을 큐에 제출하기 위한 헬퍼 함수 (Layout 전환)
-void EngineTexture::transitionImageLayout(VkImageLayout oldLayout, VkImageLayout newLayout) {
+void EngineTexture::transitionImageLayout(VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout) {
     VkCommandBufferAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
@@ -171,7 +222,6 @@ void EngineTexture::transitionImageLayout(VkImageLayout oldLayout, VkImageLayout
     vkFreeCommandBuffers(engineDevice.getDevice(), engineDevice.getCommandPool(), 1, &commandBuffer);
 }
 
-// 일회성 명령으로 버퍼에서 이미지로 복사
 void EngineTexture::copyBufferToImage(VkBuffer buffer, uint32_t width, uint32_t height) {
     VkCommandBufferAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
