@@ -3,7 +3,7 @@
 #include "EngineSwapChain.hpp"
 #include "EnginePipeline.hpp"
 #include "EngineModel.hpp"
-#include "EngineGameObject.hpp"
+//#include "EngineGameObject.hpp" //replace entt and Components system
 #include "EngineCamera.hpp" // 카메라 추가!
 #include "KeyboardMovementController.hpp"
 #include "EngineBuffer.hpp"
@@ -11,6 +11,9 @@
 #include "EngineTexture.hpp"
 #include "EngineAnimation.hpp"
 #include "EngineAnimator.hpp"
+
+#include <entt/entt.hpp>
+#include "Components.hpp"
 
 #include <iostream>
 #include <chrono>
@@ -90,23 +93,23 @@ int main() {
     
     // 애니메이터 생성 시 기본 상태를 Idle로 설정
     EngineAnimator animator{&idleAnimation};    std::cout << "애니메이션 세팅 완료!" << std::endl;
+    std::cout << "애니메이션 완료..." << std::endl;
+    
+    // EnTT 레지스트리 (데이터베이스) 생성
+    entt::registry registry;
 
-    // 게임 오브젝트들에게 캐릭터 모델을 장착시켜 줍니다!
-    std::vector<EngineGameObject> gameObjects;
+    // 캐릭터 엔티티 생성 및 부품 장착
+    auto koroneEntity = registry.create();
+    auto& koroneTransform = registry.emplace<TransformComponent>(koroneEntity);
+    koroneTransform.translation = {0.0f, 0.0f, 0.0f};
+    koroneTransform.rotation = {0.0f, 0.0f, 0.0f};
+    koroneTransform.scale = {0.01f, 0.01f, 0.01f};
+    registry.emplace<ModelComponent>(koroneEntity, kedamaModel);
 
-    auto obj1 = EngineGameObject::createGameObject();
-    obj1.model = kedamaModel; // 캐릭터 장착
-    obj1.transform.translation = {0.0f, 0.0f, 0.0f};
-    obj1.transform.rotation = {0.0f, 0.0f, 0.0f};
-    obj1.transform.scale = {0.01f, 0.01f, 0.01f};
-    //obj1.transform.scale = {1.0f, 1.0f, 1.0f};
-
-    gameObjects.push_back(std::move(obj1));
-
-    // 플레이어의 눈이 되어줄 "뷰어(Viewer)" 게임 오브젝트를 만듭니다.
-    EngineGameObject viewerObject = EngineGameObject::createGameObject();
-    // 시작 위치를 살짝 뒤로 물러나게 설정
-    viewerObject.transform.translation = {0.f, 0.f, 2.5f};
+    // 3. 뷰어(관찰자 카메라) 엔티티 생성
+    auto viewerEntity = registry.create();
+    auto& viewerTransform = registry.emplace<TransformComponent>(viewerEntity);
+    viewerTransform.translation = {0.f, 0.f, 2.5f};
     
     //키보드 조종기 생성
     KeyboardMovementController cameraController{};
@@ -136,34 +139,16 @@ int main() {
         float frameTime = std::chrono::duration<float, std::chrono::seconds::period>(newTime - currentTime).count();
         currentTime = newTime;
 
-        // ★ 키보드 입력을 받아 뷰어 오브젝트를 움직입니다!
-        //bool isMoving = cameraController.moveInPlaneXZ(window.getGLFWwindow(), frameTime, gameObjects[0]);
-        cameraController.moveInPlaneXZ(window.getGLFWwindow(), frameTime, viewerObject);
-
-        // ★ 2. 애니메이션 상태 전이 (State Machine)
-        // if (isMoving && !wasMoving) {
-        //     // 멈춰있다가 방금 걷기 시작함 -> Walk 애니메이션 재생
-        //     animator.playAnimation(&walkAnimation);
-        //     wasMoving = true;
-        // } else if (!isMoving && wasMoving) {
-        //     // 걷다가 방금 멈춤 -> Idle 애니메이션 재생
-        //     animator.playAnimation(&idleAnimation);
-        //     wasMoving = false;
-        // }
-
-        animator.playAnimation(&idleAnimation);
-
-
-        // 카메라 세팅 (카메라는 고정된 뷰어 오브젝트의 위치를 그대로 씁니다)
-        //glm::vec3 targetPos = gameObjects[0].transform.translation;
-        //targetPos.y -= 0.5f; // 캐릭터의 중심(살짝 위)을 바라보도록 높이 조정 (Vulkan은 -Y가 위쪽)
+        // 뷰어 엔티티의 Transform 부품을 가져옵니다.
+        auto& viewTrans = registry.get<TransformComponent>(viewerEntity);
         
-        // 캐릭터의 등 뒤(-2.5)와 살짝 위(-0.5)에 카메라 위치 설정
-        glm::vec3 cameraPos = glm::vec3(0.0f, -0.5f, -2.5f);
-        
-        //camera.setViewTarget(cameraPos, targetPos);
-        camera.setViewYXZ(viewerObject.transform.translation, viewerObject.transform.rotation);
+        // 컨트롤러와 카메라에 부품(viewTrans)을 연결합니다.
+        cameraController.moveInPlaneXZ(window.getGLFWwindow(), frameTime, viewTrans);
+        camera.setViewYXZ(viewTrans.translation, viewTrans.rotation);
+
+
         // ★ 3. 애니메이터 업데이트 및 UBO 전송 (기존과 동일)
+        animator.playAnimation(&idleAnimation);
         animator.updateAnimation(frameTime);
         
         // ★ 매 프레임 화면 비율(Aspect Ratio)에 맞춰 원근감 행렬 갱신 ★
@@ -232,11 +217,14 @@ int main() {
         VkDescriptorSet globalSet = descriptorManager.getGlobalDescriptorSet();
         vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.getPipelineLayout(), 0, 1, &globalSet, 0, nullptr);
         
-        for (auto& obj : gameObjects) {
+        auto view = registry.view<TransformComponent, ModelComponent>();
+        
+        for (auto entity : view) {
+            auto& transform = view.get<TransformComponent>(entity);
+            auto& modelComp = view.get<ModelComponent>(entity);
+
             SimplePushConstantData push{};
-            // Projection * View * Model (GPU는 오른쪽에서 왼쪽으로 계산되므로 P * V * M 순서로 곱해야 함)
-            //push.transform = projectionView * obj.transform.mat4();
-            push.modelMatrix = obj.transform.mat4();
+            push.modelMatrix = transform.mat4();
 
             vkCmdPushConstants(
                 commandBuffer, 
@@ -247,8 +235,8 @@ int main() {
                 &push
             );
 
-            obj.model->bind(commandBuffer);
-            obj.model->draw(commandBuffer);
+            modelComp.model->bind(commandBuffer);
+            modelComp.model->draw(commandBuffer);
         }
         
         vkCmdEndRenderPass(commandBuffer);

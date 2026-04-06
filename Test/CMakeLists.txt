@@ -1,35 +1,64 @@
-cmake_minimum_required(VERSION 3.15)
+cmake_minimum_required(VERSION 3.18)
 project(VulkanEngine)
+
+if(MSVC)
+    # 전체 프로젝트가 동적 런타임(MD/MDd)을 사용하도록 강제합니다.
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+    # C++ 표준 설정
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Zc:__cplusplus")
+endif()
+
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # --- 1. 플랫폼별 Vulkan SDK 설정 ---
 if(APPLE)
-    # Mac 전용 환경 변수 강제 주입 (기존 코드 유지)
     set(ENV{VULKAN_SDK} "/Users/dohyun/VulkanSDK/1.4.341.1/macOS")
     set(Vulkan_INCLUDE_DIR "$ENV{VULKAN_SDK}/include")
     set(Vulkan_LIBRARY "$ENV{VULKAN_SDK}/lib/libvulkan.dylib")
 elseif(WIN32)
-    # Windows에서는 Vulkan SDK 설치 시 VULKAN_SDK 환경 변수가 자동으로 설정됩니다.
-    # 따라서 별도의 수동 경로 지정 없이 아래 find_package에서 자동으로 찾게 됩니다.
+    # Windows는 VULKAN_SDK 환경 변수 자동 인식
 endif()
 
 find_package(Vulkan REQUIRED)
 if(WIN32)
-    # 윈도우(vcpkg) 환경: CONFIG 모드를 사용하는 것이 확실하고 안전함
     find_package(glfw3 CONFIG REQUIRED)
     find_package(glm CONFIG REQUIRED)
     find_package(assimp CONFIG REQUIRED)
+    find_package(Jolt CONFIG REQUIRED)
 elseif(APPLE)
-    # 맥 환경: 기본 CMake 모듈 탐색 방식 사용
     find_package(glfw3 REQUIRED)
     find_package(glm REQUIRED)
     find_package(assimp REQUIRED)
 endif()
 
-# --- 2. 셰이더 자동 컴파일 세팅 (크로스 플랫폼 적용) ---
-# OS에 상관없이 환경 변수를 기반으로 glslc 실행 파일을 찾습니다.
+# --- ★ 추가: EnTT 라이브러리 자동 다운로드 및 포함 ---
+# (Configure 시점에 한 번만 다운로드되어 build/_deps에 캐싱됩니다)
+include(FetchContent)
+FetchContent_Declare(
+    entt
+    GIT_REPOSITORY https://github.com/skypjack/entt.git
+    GIT_TAG v3.13.0
+)
+FetchContent_MakeAvailable(entt)
+# -----------------------------------------------------
+
+
+# --- ★ 새로 추가: Jolt Physics 라이브러리 자동 다운로드 ---
+# Jolt의 불필요한 테스트 파일이나 샘플 프로젝트는 빌드하지 않도록 끕니다.
+# set(TARGET_UNIT_TESTS OFF CACHE BOOL "Disable Jolt unit tests" FORCE)
+# set(TARGET_HELLO_WORLD OFF CACHE BOOL "Disable Jolt hello world" FORCE)
+# set(TARGET_PERFORMANCE_TEST OFF CACHE BOOL "Disable Jolt performance tests" FORCE)
+
+# set(USE_STATIC_MSVC_RUNTIME OFF CACHE BOOL "Use dynamic MSVC runtime" FORCE)
+
+
+
+# ----------------------------------------------------------
+
+
+# --- 2. 셰이더 자동 컴파일 세팅 ---
 find_program(GLSLC_CMD NAMES glslc
              HINTS "$ENV{VULKAN_SDK}/bin" "$ENV{VULKAN_SDK}/Bin"
              PATHS "/Users/dohyun/VulkanSDK/1.4.341.1/macOS/bin")
@@ -53,22 +82,21 @@ add_custom_command(
 )
 
 add_custom_target(CompileShaders ALL DEPENDS "${SHADER_DIR}/vert.spv" "${SHADER_DIR}/frag.spv")
-# -------------------------------
 
-# src 폴더 안의 모든 .cpp 파일을 찾아서 변수에 저장합니다.
+# --- 3. 빌드 타겟 설정 ---
 file(GLOB_RECURSE SRC_FILES "src/*.cpp")
 
-# 찾은 파일들로 실행 파일을 만듭니다.
 add_executable(${PROJECT_NAME} ${SRC_FILES})
-
-# 실행 파일(VulkanEngine)을 빌드하기 전에 무조건 셰이더부터 컴파일하도록 강제합니다!
 add_dependencies(${PROJECT_NAME} CompileShaders)
 
-# src 폴더를 헤더 검색 경로에 추가합니다.
 target_include_directories(${PROJECT_NAME} PRIVATE src ${Vulkan_INCLUDE_DIRS})
+
+# ★ EnTT::EnTT 링크 추가!
 target_link_libraries(${PROJECT_NAME} PRIVATE 
     Vulkan::Vulkan 
     glfw 
     glm::glm 
     assimp::assimp
+    EnTT::EnTT 
+    Jolt::Jolt
 )

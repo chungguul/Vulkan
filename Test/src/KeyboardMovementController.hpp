@@ -1,6 +1,7 @@
 #pragma once
 
-#include "EngineGameObject.hpp"
+//#include "EngineGameObject.hpp"
+#include "Components.hpp"
 #include "EngineWindow.hpp"
 
 class KeyboardMovementController {
@@ -18,7 +19,7 @@ public:
         int lookDown = GLFW_KEY_DOWN;
     };
 
-    bool moveInPlaneXZ(GLFWwindow* window, float dt, EngineGameObject& gameObject);
+    bool moveInPlaneXZ(GLFWwindow* window, float dt, TransformComponent& transform);
 
     KeyMappings keys{};
     float moveSpeed{3.f}; // 이동 속도

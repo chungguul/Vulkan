@@ -1,6 +1,6 @@
 #include "KeyboardMovementController.hpp"
 
-bool KeyboardMovementController::moveInPlaneXZ(GLFWwindow* window, float dt, EngineGameObject& gameObject) {
+bool KeyboardMovementController::moveInPlaneXZ(GLFWwindow* window, float dt, TransformComponent& transform) {
     glm::vec3 rotate{0};
     
     // 1. 방향키 입력으로 고개 돌리기 (회전)
@@ -11,16 +11,16 @@ bool KeyboardMovementController::moveInPlaneXZ(GLFWwindow* window, float dt, Eng
 
     // 회전값 적용 (대각선 입력 시 정규화 방지 및 속도/프레임시간 곱하기)
     if (glm::dot(rotate, rotate) > std::numeric_limits<float>::epsilon()) {
-        gameObject.transform.rotation += lookSpeed * dt * glm::normalize(rotate);
+        transform.rotation += lookSpeed * dt * glm::normalize(rotate);
     }
 
     // 위아래로 너무 꺾이지 않도록 각도 제한 (Pitch 제한)
-    gameObject.transform.rotation.x = glm::clamp(gameObject.transform.rotation.x, -1.5f, 1.5f);
+    transform.rotation.x = glm::clamp(transform.rotation.x, -1.5f, 1.5f);
     // Y축 회전은 360도를 넘어가면 0으로 맞춰줌 (오버플로우 방지)
-    gameObject.transform.rotation.y = glm::mod(gameObject.transform.rotation.y, glm::two_pi<float>());
+    transform.rotation.y = glm::mod(transform.rotation.y, glm::two_pi<float>());
 
     // 2. WASD 입력으로 이동하기
-    float yaw = gameObject.transform.rotation.y;
+    float yaw = transform.rotation.y;
     // 현재 바라보는 방향(yaw)을 기준으로 앞으로 갈 벡터와 오른쪽으로 갈 벡터를 계산
     const glm::vec3 forwardDir{sin(yaw), 0.f, cos(yaw)};
     const glm::vec3 rightDir{forwardDir.z, 0.f, -forwardDir.x};
@@ -40,7 +40,7 @@ bool KeyboardMovementController::moveInPlaneXZ(GLFWwindow* window, float dt, Eng
         glm::vec3 normalizedDir = glm::normalize(moveDir);
         
         // 2. 위치 이동 (기존 코드)
-        gameObject.transform.translation += moveSpeed * dt * normalizedDir;
+        transform.translation += moveSpeed * dt * normalizedDir;
         
         // ★ 3. 방향 전환 (새로 추가!)
         // 캐릭터가 이동하는 방향(normalizedDir)을 바라보도록 Y축 회전값을 계산합니다.
