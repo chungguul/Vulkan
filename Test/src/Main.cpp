@@ -11,6 +11,7 @@
 #include "EngineTexture.hpp"
 #include "EngineAnimation.hpp"
 #include "EngineAnimator.hpp"
+#include "EnginePhysics.hpp"
 
 #include <entt/entt.hpp>
 #include "Components.hpp"
@@ -95,16 +96,26 @@ int main() {
     EngineAnimator animator{&idleAnimation};    std::cout << "애니메이션 세팅 완료!" << std::endl;
     std::cout << "애니메이션 완료..." << std::endl;
     
+    //물리 엔진 클래스 생성 및 초기화 
+    EnginePhysics physicsEngine;
+    physicsEngine.init();
+    //바닥 생성 (무한히 추락 방지)
+    physicsEngine.createFloor();
+
     // EnTT 레지스트리 (데이터베이스) 생성
     entt::registry registry;
 
     // 캐릭터 엔티티 생성 및 부품 장착
     auto koroneEntity = registry.create();
     auto& koroneTransform = registry.emplace<TransformComponent>(koroneEntity);
-    koroneTransform.translation = {0.0f, 0.0f, 0.0f};
+    koroneTransform.translation = {0.0f, 10.0f, 0.0f};
     koroneTransform.rotation = {0.0f, 0.0f, 0.0f};
     koroneTransform.scale = {0.01f, 0.01f, 0.01f};
     registry.emplace<ModelComponent>(koroneEntity, kedamaModel);
+
+    //rigid body 부착
+    uint32_t koroneBodyID = physicsEngine.createBox(koroneTransform.translation, glm::vec3(0.5f, 0.5f, 0.5f), true);
+    registry.emplace<RigidBodyComponent>(koroneEntity, koroneBodyID);
 
     // 3. 뷰어(관찰자 카메라) 엔티티 생성
     auto viewerEntity = registry.create();
@@ -116,7 +127,7 @@ int main() {
 
     EngineCamera camera{};
     // 위치는 (0, 0, -2.5)로 살짝 뒤로 물러나서, (0, 0, 0) 원점을 바라보게 세팅!
-    camera.setViewTarget(glm::vec3(0.f, 0.f, -2.5f), glm::vec3(0.f, 0.f, 0.f));
+    camera.setViewTarget(glm::vec3(0.f, -3.0f, -20.0f), glm::vec3(0.f, 0.f, 0.f));
 
     VkCommandBufferAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -126,6 +137,8 @@ int main() {
 
     VkCommandBuffer commandBuffer;
     vkAllocateCommandBuffers(device.getDevice(), &allocInfo, &commandBuffer);
+
+
 
     std::cout << "엔진 루프 진입 중..." << std::endl;
     auto currentTime = std::chrono::high_resolution_clock::now();
@@ -138,6 +151,19 @@ int main() {
         auto newTime = std::chrono::high_resolution_clock::now();
         float frameTime = std::chrono::duration<float, std::chrono::seconds::period>(newTime - currentTime).count();
         currentTime = newTime;
+
+        //매 프레임 물리 연산 업데이트
+        physicsEngine.update(frameTime);
+        //ECS 동기화 시스템 (Physics -> Render Transform)
+        //Transform과 RigidBody를 모두 가진 엔티티만 찾음
+        auto physicsView = registry.view<TransformComponent, RigidBodyComponent>();
+        for (auto entity : physicsView) {
+            auto& transform = physicsView.get<TransformComponent>(entity);
+            auto& rigidBody = physicsView.get<RigidBodyComponent>(entity);
+
+            // Jolt 물리 엔진이 계산한 '진짜 위치'를 가져와서, 렌더링용 Transform에 덮어씌웁니다!
+            transform.translation = physicsEngine.getBodyPosition(rigidBody.bodyID);
+        }
 
         // 뷰어 엔티티의 Transform 부품을 가져옵니다.
         auto& viewTrans = registry.get<TransformComponent>(viewerEntity);
