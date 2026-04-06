@@ -110,7 +110,7 @@ int main() {
     // 캐릭터 엔티티 생성 및 부품 장착
     auto koroneEntity = registry.create();
     auto& koroneTransform = registry.emplace<TransformComponent>(koroneEntity);
-    koroneTransform.translation = {0.0f, 0.0f, 0.0f};
+    koroneTransform.translation = {0.0f, 5.0f, 0.0f};
     koroneTransform.rotation = {0.0f, 0.0f, 0.0f};
     koroneTransform.scale = {0.01f, 0.01f, 0.01f};
     //koroneTransform.scale = {0.1f,0.1f, 0.1f};
@@ -194,10 +194,10 @@ int main() {
             auto& ragdoll = ragdollView.get<RagdollComponent>(entity);
             auto& modelComp = ragdollView.get<ModelComponent>(entity);
 
-            glm::mat4 physicsBones[2]; 
-            physicsEngine.updateRagdollBones(ragdoll.ragdollID, physicsBones, 2);
+            glm::mat4 physicsBones[10]; 
+            physicsEngine.updateRagdollBones(ragdoll.ragdollID, physicsBones, 10);
 
-            // 1. 모델 전체 위치/회전 동기화 (몸통 기준)
+            // 1. 모델 루트(Pelvis) 동기화
             glm::vec3 scale, translation, skew;
             glm::vec4 perspective;
             glm::quat rotationQuat;
@@ -206,53 +206,106 @@ int main() {
             transform.rotation = glm::eulerAngles(rotationQuat);
 
             const auto& boneInfoMap = modelComp.model->getBoneInfoMap();
-
-            // 2. 머리가 몸통에서 얼마나 꺾였는지 '순수 회전값'만 추출합니다.
             glm::quat qBody = glm::quat_cast(physicsBones[0]);
-            glm::quat qHead = glm::quat_cast(physicsBones[1]);
-            glm::mat4 headRotMat = glm::mat4_cast(glm::inverse(qBody) * qHead);
 
-            // ★ 3. '머리(Head)' 기준의 최종 셰이더 행렬을 딱 한 번만 계산합니다!
-            glm::mat4 headDeformMatrix = glm::mat4(1.0f);
-            if (boneInfoMap.find("Bip001 Head") != boneInfoMap.end()) {
-                const auto& headOffset = boneInfoMap.at("Bip001 Head").offset;
-                // 오직 '머리의 중심점'을 기준으로 회전합니다.
-                headDeformMatrix = glm::inverse(headOffset) * headRotMat * headOffset;
-            }
+            // 자식 뼈대들의 '순수 회전 행렬'을 계산하는 람다 함수 (반복 작업 최소화)
+            auto getLocalRot = [&](int physicsIndex) {
+                glm::quat qChild = glm::quat_cast(physicsBones[physicsIndex]);
+                return glm::mat4_cast(glm::inverse(qBody) * qChild);
+            };
 
-            // 4. 자식 뼈들에게 머리 행렬을 그대로 나누어 줍니다.
+            // 각 뼈대의 순수 회전 행렬 미리 계산
+            glm::mat4 headRot = getLocalRot(1);
+            glm::mat4 lThighRot = getLocalRot(2);
+            glm::mat4 lCalfRot = getLocalRot(3);
+            glm::mat4 rThighRot = getLocalRot(4);
+            glm::mat4 rCalfRot = getLocalRot(5);
+            glm::mat4 lUpperArmRot = getLocalRot(6); 
+            glm::mat4 lForearmRot = getLocalRot(7);
+            glm::mat4 rUpperArmRot = getLocalRot(8); 
+            glm::mat4 rForearmRot = getLocalRot(9);
+
+            // 3. 부위별 스키닝 연산
             for (const auto& [boneName, boneInfo] : boneInfoMap) {
                 
-                if (boneName.find("Head") != std::string::npos || 
-                    boneName.find("EYE") != std::string::npos || 
-                    boneName.find("Ear") != std::string::npos || 
-                    boneName.find("Hair") != std::string::npos) {
-                    
-                    // ★ 핵심: 자기 자신의 offset이 아니라, '머리의 변형 행렬'을 똑같이 덮어씌웁니다!
-                    // 이제 눈알과 머리카락은 완벽하게 머리통에 본드로 붙인 것처럼 따라다닙니다.
-                    ubo.finalBonesMatrices[boneInfo.id] = headDeformMatrix;
-                    
-                } else {
-                    // 몸통 및 나머지 (단위 행렬 유지)
-                    ubo.finalBonesMatrices[boneInfo.id] = glm::mat4(1.0f);
+                glm::mat4 deformMatrix = glm::mat4(1.0f); // 기본값: 변형 없음 (몸통)
+
+                // 문자열 비교로 어떤 파트인지 식별
+                if (boneName.find("Head") != std::string::npos || boneName.find("EYE") != std::string::npos || boneName.find("Ear") != std::string::npos || boneName.find("Hair") != std::string::npos) {
+                    const auto& offset = boneInfoMap.at("Bip001 Head").offset;
+                    deformMatrix = glm::inverse(offset) * headRot * offset;
+                } 
+                else if (boneName.find("L Thigh") != std::string::npos) {
+                    const auto& offset = boneInfoMap.at("Bip001 L Thigh").offset;
+                    deformMatrix = glm::inverse(offset) * lThighRot * offset;
                 }
+                else if (boneName.find("L Calf") != std::string::npos || boneName.find("L Foot") != std::string::npos || boneName.find("L Toe") != std::string::npos) {
+                    // 발(Foot)과 발가락(Toe)은 종아리(Calf)를 따라가게 묶어버립니다.
+                    const auto& offset = boneInfoMap.at("Bip001 L Calf").offset;
+                    deformMatrix = glm::inverse(offset) * lCalfRot * offset;
+                }
+                else if (boneName.find("R Thigh") != std::string::npos) {
+                    const auto& offset = boneInfoMap.at("Bip001 R Thigh").offset;
+                    deformMatrix = glm::inverse(offset) * rThighRot * offset;
+                }
+                else if (boneName.find("R Calf") != std::string::npos || boneName.find("R Foot") != std::string::npos || boneName.find("R Toe") != std::string::npos) {
+                    const auto& offset = boneInfoMap.at("Bip001 R Calf").offset;
+                    deformMatrix = glm::inverse(offset) * rCalfRot * offset;
+                }
+                else if (boneName.find("L Clavicle") != std::string::npos || boneName.find("L UpperArm") != std::string::npos) {
+                const auto& offset = boneInfoMap.at("Bip001 L UpperArm").offset;
+                deformMatrix = glm::inverse(offset) * lUpperArmRot * offset;
+                }
+                else if (boneName.find("L Forearm") != std::string::npos || boneName.find("L Hand") != std::string::npos || boneName.find("L Finger") != std::string::npos) {
+                    const auto& offset = boneInfoMap.at("Bip001 L Forearm").offset;
+                    deformMatrix = glm::inverse(offset) * lForearmRot * offset;
+                }
+                else if (boneName.find("R Clavicle") != std::string::npos || boneName.find("R UpperArm") != std::string::npos) {
+                    const auto& offset = boneInfoMap.at("Bip001 R UpperArm").offset;
+                    deformMatrix = glm::inverse(offset) * rUpperArmRot * offset;
+                }
+                else if (boneName.find("R Forearm") != std::string::npos || boneName.find("R Hand") != std::string::npos || boneName.find("R Finger") != std::string::npos) {
+                    const auto& offset = boneInfoMap.at("Bip001 R Forearm").offset;
+                    deformMatrix = glm::inverse(offset) * rForearmRot * offset;
+                }
+
+                ubo.finalBonesMatrices[boneInfo.id] = deformMatrix;
             }
+
+            static bool spacePressed = false;
+            if (glfwGetKey(window.getGLFWwindow(), GLFW_KEY_SPACE) == GLFW_PRESS) {
+                if (!spacePressed) {
+                    // 힘의 크기(Impulse)는 질량에 비례하므로 엄청나게 큰 값을 줍니다.
+                    physicsEngine.applyImpulseToRagdoll(ragdoll.ragdollID, glm::vec3(0.0f, 300.0f, -500.0f), 0); // 0번 파트(몸통) 타격
+                    spacePressed = true;
+                }
+            } else {
+                spacePressed = false;
+            }
+
         }
         // 뷰어 엔티티의 Transform 부품을 가져옵니다.
+        auto& koroneTrans = registry.get<TransformComponent>(koroneEntity);
         auto& viewTrans = registry.get<TransformComponent>(viewerEntity);
         
         // 컨트롤러와 카메라에 부품(viewTrans)을 연결합니다.
+        // cameraController.moveInPlaneXZ(window.getGLFWwindow(), frameTime, viewTrans);
+        // camera.setViewYXZ(viewTrans.translation, viewTrans.rotation);
+
+        // 카메라의 시선을 코로네의 위치로 강제 고정!
         cameraController.moveInPlaneXZ(window.getGLFWwindow(), frameTime, viewTrans);
-        camera.setViewYXZ(viewTrans.translation, viewTrans.rotation);
+        camera.setViewTarget(viewTrans.translation, koroneTrans.translation);
 
 
         // ★ 3. 애니메이터 업데이트 및 UBO 전송 (기존과 동일)
         animator.playAnimation(&idleAnimation);
         animator.updateAnimation(frameTime);
+
+
         
         // ★ 매 프레임 화면 비율(Aspect Ratio)에 맞춰 원근감 행렬 갱신 ★
         float aspect = swapChain.getWidth() / (float)swapChain.getHeight();
-        camera.setPerspectiveProjection(glm::radians(50.f), aspect, 0.1f, 10.f);
+        camera.setPerspectiveProjection(glm::radians(50.f), aspect, 0.1f, 1000.f);
 
         // (동기화 대기/확보)
         VkFence inFlightFence = swapChain.getInFlightFence();

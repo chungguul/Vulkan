@@ -3,11 +3,11 @@
 #include <Jolt/Core/Factory.h>
 #include <Jolt/Physics/Collision/BroadPhase/BroadPhaseLayer.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
-#include <Jolt/Physics/Body/BodyCreationSettings.h>
-
-#include <Jolt/Physics/Ragdoll/Ragdoll.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
+#include <Jolt/Physics/Body/BodyCreationSettings.h>
+#include <Jolt/Physics/Ragdoll/Ragdoll.h>
 #include <Jolt/Physics/Constraints/SwingTwistConstraint.h>
+#include <Jolt/Physics/Constraints/HingeConstraint.h>
 #include <Jolt/Skeleton/Skeleton.h>
 #include <Jolt/Skeleton/SkeletonPose.h>
 
@@ -174,64 +174,128 @@ glm::vec3 EnginePhysics::getBodyPosition(uint32_t id) {
 uint32_t EnginePhysics::createSimpleRagdoll(glm::vec3 position) {
     using namespace JPH;
 
-    // 1. 뼈대(Skeleton) 정의
     Ref<Skeleton> skeleton = new Skeleton();
-    skeleton->AddJoint("Body", -1); 
-    skeleton->AddJoint("Head", 0);  
+    // 뼈대 계층 구조 정의 (인덱스가 중요합니다!)
+    skeleton->AddJoint("Pelvis", -1);  // 0번: 루트(골반)
+    skeleton->AddJoint("Head", 0);     // 1번: 머리 (부모: 0)
+    skeleton->AddJoint("L_Thigh", 0);  // 2번: 왼 허벅지 (부모: 0)
+    skeleton->AddJoint("L_Calf", 2);   // 3번: 왼 종아리 (부모: 2)
+    skeleton->AddJoint("R_Thigh", 0);  // 4번: 오른 허벅지 (부모: 0)
+    skeleton->AddJoint("R_Calf", 4);   // 5번: 오른 종아리 (부모: 4)
+    skeleton->AddJoint("L_UpperArm", 0);  // 6번: 왼 위팔 (어깨는 몸통에 연결)
+    skeleton->AddJoint("L_Forearm", 6);   // 7번: 왼 아래팔
+    skeleton->AddJoint("R_UpperArm", 0);  // 8번: 오른 위팔
+    skeleton->AddJoint("R_Forearm", 8);   // 9번: 오른 아래팔
 
-    // 2. 래그돌 세팅 생성
     Ref<RagdollSettings> ragdollSettings = new RagdollSettings();
     ragdollSettings->mSkeleton = skeleton;
 
-    // 3. 각 뼈대 부위(Part) 설정
-    // [해결 1] C++ 문법 함정 회피: 객체를 괄호나 지역 변수로 깔끔하게 생성해서 넘깁니다.
-    
-    // 몸통 (Index 0)
-    RagdollSettings::Part torsoPart;
-    torsoPart.mPosition = RVec3(0, 0.5f, 0);
-    torsoPart.mRotation = Quat::sIdentity();
-    // ShapeSettings 인스턴스화 후 Create().Get() 으로 ShapeRefC 추출
-    ShapeRefC torsoShape = CapsuleShapeSettings(0.3f, 0.15f).Create().Get();
-    torsoPart.SetShape(torsoShape); // mShape 직접 접근 금지, SetShape 사용!
-    torsoPart.mMotionType = EMotionType::Dynamic;
-    torsoPart.mObjectLayer = Layers::MOVING;
-    ragdollSettings->mParts.push_back(torsoPart);
+    // --- 1. 파트(캡슐) 생성 ---
+auto createPart = [](float length, float radius, RVec3 pos) {
+        RagdollSettings::Part part;
+        part.mPosition = pos;
+        part.mRotation = Quat::sIdentity();
+        
+        ShapeRefC shape = CapsuleShapeSettings(length, radius).Create().Get();
+        part.SetShape(shape);
+        
+        part.mMotionType = EMotionType::Dynamic;
+        part.mObjectLayer = Layers::MOVING;
+        return part;
+    };
 
-    // 머리 (Index 1)
-    RagdollSettings::Part headPart;
-    headPart.mPosition = RVec3(0, 1.0f, 0);
-    headPart.mRotation = Quat::sIdentity();
-    ShapeRefC headShape = CapsuleShapeSettings(0.1f, 0.15f).Create().Get();
-    headPart.SetShape(headShape);
-    headPart.mMotionType = EMotionType::Dynamic;
-    headPart.mObjectLayer = Layers::MOVING;
-    
-    // 4. 목 관절(Constraint) 설정
-    SwingTwistConstraintSettings* neckConstraint = new SwingTwistConstraintSettings();
-    neckConstraint->mPosition1 = neckConstraint->mPosition2 = RVec3(0, 0.8f, 0);
-    neckConstraint->mTwistAxis1 = neckConstraint->mTwistAxis2 = Vec3::sAxisY();
-    neckConstraint->mPlaneAxis1 = neckConstraint->mPlaneAxis2 = Vec3::sAxisX();
-    neckConstraint->mNormalHalfConeAngle = JPH_PI / 8.0f; // 매우 빡빡하게 제한
-    neckConstraint->mPlaneHalfConeAngle = JPH_PI / 8.0f;
-    neckConstraint->mTwistMinAngle = -JPH_PI / 12.0f; // 회전도 꽉 잡기
-    neckConstraint->mTwistMaxAngle = JPH_PI / 12.0f;
-    
-    headPart.mToParent = neckConstraint; 
-    ragdollSettings->mParts.push_back(headPart);
+    // 0: Pelvis
+    ragdollSettings->mParts.push_back(createPart(0.15f, 0.15f, RVec3(0, 0.9f, 0)));
+    // 1: Head
+    ragdollSettings->mParts.push_back(createPart(0.1f, 0.12f, RVec3(0, 1.3f, 0)));
+    // 2: L_Thigh, 3: L_Calf
+    ragdollSettings->mParts.push_back(createPart(0.2f, 0.08f, RVec3(-0.15f, 0.6f, 0)));
+    ragdollSettings->mParts.push_back(createPart(0.2f, 0.07f, RVec3(-0.15f, 0.2f, 0)));
+    // 4: R_Thigh, 5: R_Calf
+    ragdollSettings->mParts.push_back(createPart(0.2f, 0.08f, RVec3(0.15f, 0.6f, 0)));
+    ragdollSettings->mParts.push_back(createPart(0.2f, 0.07f, RVec3(0.15f, 0.2f, 0)));
+    // 6: L_UpperArm, 7: L_Forearm
+    ragdollSettings->mParts.push_back(createPart(0.15f, 0.05f, JPH::RVec3(-0.25f, 1.0f, 0)));
+    ragdollSettings->mParts.push_back(createPart(0.15f, 0.04f, JPH::RVec3(-0.25f, 0.7f, 0)));
+    // 8: R_UpperArm, 9: R_Forearm
+    ragdollSettings->mParts.push_back(createPart(0.15f, 0.05f, JPH::RVec3(0.25f, 1.0f, 0)));
+    ragdollSettings->mParts.push_back(createPart(0.15f, 0.04f, JPH::RVec3(0.25f, 0.7f, 0)));
 
-    // 5. 래그돌 생성 및 초기 위치 설정
+    // --- 2. 관절(Constraint) 연결 ---
+    
+    // (1) 목 관절 (SwingTwist)
+    SwingTwistConstraintSettings* neck = new SwingTwistConstraintSettings();
+    neck->mPosition1 = neck->mPosition2 = RVec3(0, 1.1f, 0);
+    neck->mTwistAxis1 = neck->mTwistAxis2 = Vec3::sAxisY();
+    neck->mPlaneAxis1 = neck->mPlaneAxis2 = Vec3::sAxisX();
+    neck->mNormalHalfConeAngle = JPH_PI / 6.0f;
+    neck->mPlaneHalfConeAngle = JPH_PI / 6.0f;
+    ragdollSettings->mParts[1].mToParent = neck;
+
+    // (2) 골반-허벅지 관절 (다리가 찢어지지 않게 제한된 코깔콘 모양 SwingTwist)
+    auto createHipConstraint = [](RVec3 pos) {
+        SwingTwistConstraintSettings* hip = new SwingTwistConstraintSettings();
+        hip->mPosition1 = hip->mPosition2 = pos;
+        hip->mTwistAxis1 = hip->mTwistAxis2 = Vec3::sAxisY(); // 아래를 향함
+        hip->mPlaneAxis1 = hip->mPlaneAxis2 = Vec3::sAxisX();
+        hip->mNormalHalfConeAngle = JPH_PI / 4.0f; // 다리 벌림 제한
+        hip->mPlaneHalfConeAngle = JPH_PI / 4.0f;  // 다리 앞뒤 제한
+        return hip;
+    };
+    ragdollSettings->mParts[2].mToParent = createHipConstraint(RVec3(-0.15f, 0.8f, 0)); // 왼 고관절
+    ragdollSettings->mParts[4].mToParent = createHipConstraint(RVec3(0.15f, 0.8f, 0));  // 오른 고관절
+
+    // (3) 무릎 관절 (오직 X축으로만 꺾이는 Hinge)
+    auto createKneeConstraint = [](RVec3 pos) {
+        HingeConstraintSettings* knee = new HingeConstraintSettings();
+        knee->mPoint1 = knee->mPoint2 = pos;
+        knee->mHingeAxis1 = knee->mHingeAxis2 = Vec3::sAxisX(); // 무릎이 접히는 축
+        knee->mNormalAxis1 = knee->mNormalAxis2 = Vec3::sAxisZ();
+        knee->mLimitsMin = 0.0f;           // 무릎이 반대로 꺾이지 않게
+        knee->mLimitsMax = JPH_PI * 0.8f;  // 뒤로는 140도 정도 꺾임
+        return knee;
+    };
+    ragdollSettings->mParts[3].mToParent = createKneeConstraint(RVec3(-0.15f, 0.4f, 0)); // 왼 무릎
+    ragdollSettings->mParts[5].mToParent = createKneeConstraint(RVec3(0.15f, 0.4f, 0));  // 오른 무릎
+
+    // 어깨 관절 (팔이 빙글빙글 돌 수 있게 SwingTwist)
+    auto createShoulderConstraint = [](JPH::RVec3 pos) {
+        JPH::SwingTwistConstraintSettings* shoulder = new JPH::SwingTwistConstraintSettings();
+        shoulder->mPosition1 = shoulder->mPosition2 = pos;
+        shoulder->mTwistAxis1 = shoulder->mTwistAxis2 = JPH::Vec3::sAxisX(); // 팔이 뻗는 방향
+        shoulder->mPlaneAxis1 = shoulder->mPlaneAxis2 = JPH::Vec3::sAxisY();
+        shoulder->mNormalHalfConeAngle = JPH_PI / 2.0f; 
+        shoulder->mPlaneHalfConeAngle = JPH_PI / 2.0f;
+        return shoulder;
+    };
+    ragdollSettings->mParts[6].mToParent = createShoulderConstraint(JPH::RVec3(-0.2f, 1.1f, 0)); // 왼 어깨
+    ragdollSettings->mParts[8].mToParent = createShoulderConstraint(JPH::RVec3(0.2f, 1.1f, 0));  // 오른 어깨
+
+    // 팔꿈치 관절 (무릎처럼 접히기만 하는 Hinge)
+    auto createElbowConstraint = [](JPH::RVec3 pos) {
+        JPH::HingeConstraintSettings* elbow = new JPH::HingeConstraintSettings();
+        elbow->mPoint1 = elbow->mPoint2 = pos;
+        elbow->mHingeAxis1 = elbow->mHingeAxis2 = JPH::Vec3::sAxisX(); // 접히는 축
+        elbow->mNormalAxis1 = elbow->mNormalAxis2 = JPH::Vec3::sAxisZ();
+        elbow->mLimitsMin = 0.0f;           
+        elbow->mLimitsMax = JPH_PI * 0.8f;  // 팔이 안쪽으로만 140도 접힘
+        return elbow;
+    };
+    ragdollSettings->mParts[7].mToParent = createElbowConstraint(JPH::RVec3(-0.25f, 0.85f, 0)); // 왼 팔꿈치
+    ragdollSettings->mParts[9].mToParent = createElbowConstraint(JPH::RVec3(0.25f, 0.85f, 0));  // 오른 팔꿈치
+
+    // --- 3. 래그돌 생성 (기존과 동일) ---
     Ragdoll* ragdoll = ragdollSettings->CreateRagdoll(0, 0, physicsSystem.get());
     
-    // [해결 2] 래그돌 월드 배치: 위치(RVec3)와 뼈대 행렬 배열을 직접 넘겨줍니다.
     SkeletonPose pose;
     pose.SetSkeleton(skeleton);
     pose.CalculateJointMatrices(); // 기본 차렷 자세의 행렬 계산
     
-    // SetPose(시작 위치, 각 뼈대의 행렬 데이터) 형태로 호출
+    // [해결 2] Jolt 5.5.0 정석: SetPose에 시작 위치와 행렬 데이터를 한 번에 전달
     ragdoll->SetPose(RVec3(position.x, position.y, position.z), pose.GetJointMatrices().data());
     
     ragdoll->AddToPhysicsSystem(EActivation::Activate);
-
+    
     ragdolls.push_back(ragdoll);
     return (uint32_t)(ragdolls.size() - 1);
 }
@@ -257,4 +321,12 @@ void EnginePhysics::updateRagdollBones(uint32_t ragdollID, glm::mat4* outBones, 
             }
         }
     }
+}
+
+void EnginePhysics::applyImpulseToRagdoll(uint32_t ragdollID, glm::vec3 impulse, int partIndex) {
+    if (ragdollID >= ragdolls.size()) return;
+    
+    // 특정 파트(기본값 0: Pelvis/몸통)의 BodyID를 가져와서 힘을 가합니다.
+    JPH::BodyID bodyID = ragdolls[ragdollID]->GetBodyID(partIndex);
+    physicsSystem->GetBodyInterface().AddImpulse(bodyID, JPH::Vec3(impulse.x, impulse.y, impulse.z));
 }

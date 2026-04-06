@@ -35,6 +35,7 @@ public:
     // 래그돌의 현재 물리 상태를 기반으로, 뼈대 행렬 배열을 덮어씌웁니다.
     void updateRagdollBones(uint32_t ragdollID, glm::mat4* outBones, int maxBones);
 
+    void applyImpulseToRagdoll(uint32_t ragdollID, glm::vec3 impulse, int partIndex = 0);
 private:
     std::unique_ptr<JPH::TempAllocatorImpl> tempAllocator;
     std::unique_ptr<JPH::JobSystemThreadPool> jobSystem;
