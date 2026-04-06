@@ -13,6 +13,8 @@
 #include "EngineAnimator.hpp"
 #include "EnginePhysics.hpp"
 
+#include <glm/gtx/matrix_decompose.hpp>
+
 #include <entt/entt.hpp>
 #include "Components.hpp"
 
@@ -80,7 +82,7 @@ int main() {
     std::cout << "모델 로딩 중..." << std::endl;
     EngineModel::Builder kedamaBuilder{};
     // 경로는 실행 파일 위치 기준(build 폴더)이므로 부모 폴더의 models를 가리킵니다.
-    kedamaBuilder.loadModel("../models/KedamaKorone.fbx"); 
+    kedamaBuilder.loadModel("../models/Kedama_scaled_v3.fbx"); 
     auto kedamaModel = std::make_shared<EngineModel>(device, kedamaBuilder);
     std::cout << "모델 로딩 완료!" << std::endl;
 
@@ -108,9 +110,10 @@ int main() {
     // 캐릭터 엔티티 생성 및 부품 장착
     auto koroneEntity = registry.create();
     auto& koroneTransform = registry.emplace<TransformComponent>(koroneEntity);
-    koroneTransform.translation = {0.0f, 10.0f, 0.0f};
+    koroneTransform.translation = {0.0f, 1.0f, 0.0f};
     koroneTransform.rotation = {0.0f, 0.0f, 0.0f};
     koroneTransform.scale = {0.01f, 0.01f, 0.01f};
+    //koroneTransform.scale = {0.1f,0.1f, 0.1f};
     registry.emplace<ModelComponent>(koroneEntity, kedamaModel);
 
     //rigid body 부착
@@ -180,15 +183,15 @@ int main() {
             glm::mat4 boneMatrices[2]; 
             physicsEngine.updateRagdollBones(ragdoll.ragdollID, boneMatrices, 2);
 
-            // 1. 전체 위치(Root Transform)는 몸통(0번 뼈대)의 위치를 따라가게 합니다.
-            // 행렬의 4번째 열(3번 인덱스)이 x, y, z 위치값을 가지고 있습니다.
-            transform.translation = glm::vec3(boneMatrices[0][3][0], boneMatrices[0][3][1], boneMatrices[0][3][2]);
+            // 1. glm::decompose를 이용해 물리 행렬에서 위치와 회전을 분리해냅니다.
+            glm::vec3 scale, translation, skew;
+            glm::vec4 perspective;
+            glm::quat rotationQuat;
+            glm::decompose(boneMatrices[0], scale, rotationQuat, translation, skew, perspective);
 
-            // 2. [선택/중요] 애니메이션 시스템(EngineAnimator) 연동
-            // 만약 셰이더(UBO)로 뼈대 행렬을 넘겨주는 애니메이션 시스템이 이미 있다면,
-            // 이 boneMatrices[0], boneMatrices[1] 값을 최종 렌더링 뼈대 배열에 덮어씌워주면 됩니다!
-            // 예: animator.setBoneMatrices(boneMatrices, 2);
-            //animator.setBoneMatrices(boneMatrices, 2);
+            // 2. Transform에 위치와 회전(오일러 각도)을 모두 적용!
+            transform.translation = translation;
+            transform.rotation = glm::eulerAngles(rotationQuat);
         }
 
         // 뷰어 엔티티의 Transform 부품을 가져옵니다.
