@@ -211,10 +211,10 @@ uint32_t EnginePhysics::createSimpleRagdoll(glm::vec3 position) {
     neckConstraint->mPosition1 = neckConstraint->mPosition2 = RVec3(0, 0.8f, 0);
     neckConstraint->mTwistAxis1 = neckConstraint->mTwistAxis2 = Vec3::sAxisY();
     neckConstraint->mPlaneAxis1 = neckConstraint->mPlaneAxis2 = Vec3::sAxisX();
-    neckConstraint->mNormalHalfConeAngle = JPH_PI / 4.0f;
-    neckConstraint->mPlaneHalfConeAngle = JPH_PI / 4.0f;
-    neckConstraint->mTwistMinAngle = -JPH_PI / 4.0f;
-    neckConstraint->mTwistMaxAngle = JPH_PI / 4.0f;
+    neckConstraint->mNormalHalfConeAngle = JPH_PI / 8.0f; // 매우 빡빡하게 제한
+    neckConstraint->mPlaneHalfConeAngle = JPH_PI / 8.0f;
+    neckConstraint->mTwistMinAngle = -JPH_PI / 12.0f; // 회전도 꽉 잡기
+    neckConstraint->mTwistMaxAngle = JPH_PI / 12.0f;
     
     headPart.mToParent = neckConstraint; 
     ragdollSettings->mParts.push_back(headPart);
@@ -249,6 +249,8 @@ void EnginePhysics::updateRagdollBones(uint32_t ragdollID, glm::mat4* outBones, 
         BodyID bid = ragdoll->GetBodyID(i);
         RMat44 jointMat = bi.GetWorldTransform(bid);
         
+        //std:: cout << jointMat << std::endl;
+
         for (int col = 0; col < 4; ++col) {
             for (int row = 0; row < 4; ++row) {
                 outBones[i][col][row] = jointMat(row, col);

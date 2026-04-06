@@ -110,15 +110,15 @@ int main() {
     // 캐릭터 엔티티 생성 및 부품 장착
     auto koroneEntity = registry.create();
     auto& koroneTransform = registry.emplace<TransformComponent>(koroneEntity);
-    koroneTransform.translation = {0.0f, 1.0f, 0.0f};
+    koroneTransform.translation = {0.0f, 0.0f, 0.0f};
     koroneTransform.rotation = {0.0f, 0.0f, 0.0f};
     koroneTransform.scale = {0.01f, 0.01f, 0.01f};
     //koroneTransform.scale = {0.1f,0.1f, 0.1f};
     registry.emplace<ModelComponent>(koroneEntity, kedamaModel);
 
     //rigid body 부착
-    //uint32_t koroneBodyID = physicsEngine.createBox(koroneTransform.translation, glm::vec3(0.5f, 0.5f, 0.5f), true);
-    //registry.emplace<RigidBodyComponent>(koroneEntity, koroneBodyID);
+    uint32_t koroneBodyID = physicsEngine.createBox(koroneTransform.translation, glm::vec3(0.5f, 0.5f, 0.5f), true);
+    registry.emplace<RigidBodyComponent>(koroneEntity, koroneBodyID);
 
     //Ragdoll 장착
     uint32_t koroneRagdollID = physicsEngine.createSimpleRagdoll(koroneTransform.translation);
@@ -162,6 +162,20 @@ int main() {
         //매 프레임 물리 연산 업데이트
         physicsEngine.update(frameTime);
 
+        //오브젝트를 그리기 전 1회 UBO데이터 업데이트
+        GlobalUbo ubo{};
+        ubo.projectionView = camera.getProjection() * camera.getView();
+        
+        //애니메이터가 계산한 최신 뼈대 행렬 100개를 UBO 구조체로 복사
+        // auto transforms = animator.getFinalBoneMatrices();
+        // for (int i = 0; i < MAX_BONES; ++i) {
+        //     ubo.finalBonesMatrices[i] = transforms[i];
+        // }
+
+        // for (int i = 0; i < MAX_BONES; i++) {
+        //     ubo.finalBonesMatrices[i] = glm::mat4(1.0f);
+        // }
+
         //ECS 동기화 시스템 (Physics -> Render Transform)
         //Transform과 RigidBody를 모두 가진 엔티티만 찾음
         auto physicsView = registry.view<TransformComponent, RigidBodyComponent>();
@@ -174,26 +188,56 @@ int main() {
         }
 
         // 래그돌을 가진 엔티티를 찾아서 뼈대 행렬을 업데이트합니다.
-        auto ragdollView = registry.view<TransformComponent, RagdollComponent>();
+        auto ragdollView = registry.view<TransformComponent, RagdollComponent, ModelComponent>();
         for (auto entity : ragdollView) {
             auto& transform = ragdollView.get<TransformComponent>(entity);
             auto& ragdoll = ragdollView.get<RagdollComponent>(entity);
+            auto& modelComp = ragdollView.get<ModelComponent>(entity);
 
-            // 우리가 몸통, 머리 딱 2개의 뼈만 만들었으므로 배열 크기는 2
-            glm::mat4 boneMatrices[2]; 
-            physicsEngine.updateRagdollBones(ragdoll.ragdollID, boneMatrices, 2);
+            glm::mat4 physicsBones[2]; 
+            physicsEngine.updateRagdollBones(ragdoll.ragdollID, physicsBones, 2);
 
-            // 1. glm::decompose를 이용해 물리 행렬에서 위치와 회전을 분리해냅니다.
+            // 1. 모델 전체 위치/회전 동기화 (몸통 기준)
             glm::vec3 scale, translation, skew;
             glm::vec4 perspective;
             glm::quat rotationQuat;
-            glm::decompose(boneMatrices[0], scale, rotationQuat, translation, skew, perspective);
-
-            // 2. Transform에 위치와 회전(오일러 각도)을 모두 적용!
+            glm::decompose(physicsBones[0], scale, rotationQuat, translation, skew, perspective);
             transform.translation = translation;
             transform.rotation = glm::eulerAngles(rotationQuat);
-        }
 
+            const auto& boneInfoMap = modelComp.model->getBoneInfoMap();
+
+            // 2. 머리가 몸통에서 얼마나 꺾였는지 '순수 회전값'만 추출합니다.
+            glm::quat qBody = glm::quat_cast(physicsBones[0]);
+            glm::quat qHead = glm::quat_cast(physicsBones[1]);
+            glm::mat4 headRotMat = glm::mat4_cast(glm::inverse(qBody) * qHead);
+
+            // ★ 3. '머리(Head)' 기준의 최종 셰이더 행렬을 딱 한 번만 계산합니다!
+            glm::mat4 headDeformMatrix = glm::mat4(1.0f);
+            if (boneInfoMap.find("Bip001 Head") != boneInfoMap.end()) {
+                const auto& headOffset = boneInfoMap.at("Bip001 Head").offset;
+                // 오직 '머리의 중심점'을 기준으로 회전합니다.
+                headDeformMatrix = glm::inverse(headOffset) * headRotMat * headOffset;
+            }
+
+            // 4. 자식 뼈들에게 머리 행렬을 그대로 나누어 줍니다.
+            for (const auto& [boneName, boneInfo] : boneInfoMap) {
+                
+                if (boneName.find("Head") != std::string::npos || 
+                    boneName.find("EYE") != std::string::npos || 
+                    boneName.find("Ear") != std::string::npos || 
+                    boneName.find("Hair") != std::string::npos) {
+                    
+                    // ★ 핵심: 자기 자신의 offset이 아니라, '머리의 변형 행렬'을 똑같이 덮어씌웁니다!
+                    // 이제 눈알과 머리카락은 완벽하게 머리통에 본드로 붙인 것처럼 따라다닙니다.
+                    ubo.finalBonesMatrices[boneInfo.id] = headDeformMatrix;
+                    
+                } else {
+                    // 몸통 및 나머지 (단위 행렬 유지)
+                    ubo.finalBonesMatrices[boneInfo.id] = glm::mat4(1.0f);
+                }
+            }
+        }
         // 뷰어 엔티티의 Transform 부품을 가져옵니다.
         auto& viewTrans = registry.get<TransformComponent>(viewerEntity);
         
@@ -253,18 +297,8 @@ int main() {
         //gameObjects[1].transform.rotation.z -= frameTime * glm::radians(45.0f); // Z축 기준
         //gameObjects[2].transform.rotation.x += frameTime * glm::radians(45.0f); // X축 기준 (넘어지는 느낌)
 
-        // ★ 투영 행렬과 뷰 행렬을 미리 곱해둠 (P * V) ★
-        auto projectionView = camera.getProjection() * camera.getView();
 
-        //오브젝트를 그리기 전 1회 UBO데이터 업데이트
-        GlobalUbo ubo{};
-        ubo.projectionView = camera.getProjection() * camera.getView();
-        
-        //애니메이터가 계산한 최신 뼈대 행렬 100개를 UBO 구조체로 복사
-        auto transforms = animator.getFinalBoneMatrices();
-        for (int i = 0; i < MAX_BONES; ++i) {
-            ubo.finalBonesMatrices[i] = transforms[i];
-        }
+
         
         uboBuffer.writeToBuffer(&ubo);
 

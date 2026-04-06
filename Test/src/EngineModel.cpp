@@ -1,11 +1,13 @@
 #include "EngineModel.hpp"
 #include <cstring>
 #include <stdexcept>
+#include <iostream>
 
 #define TINYOBJLOADER_IMPLEMENTATION
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
+
 
 static glm::mat4 convertMatrixToGLMFormat(const aiMatrix4x4& from) {
     glm::mat4 to;
@@ -236,6 +238,7 @@ void EngineModel::Builder::extractBoneWeightForVertices(aiMesh* mesh, const aiSc
 
         // 처음 보는 뼈라면 Map에 새로 등록
         if (boneInfoMap.find(boneName) == boneInfoMap.end()) {
+            //std::cout << boneName << std::endl;
             BoneInfo newBoneInfo;
             newBoneInfo.id = boneCounter;
             newBoneInfo.offset = convertMatrixToGLMFormat(mesh->mBones[boneIndex]->mOffsetMatrix);
