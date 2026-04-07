@@ -33,7 +33,7 @@ struct GlobalUbo
 {
     glm::mat4 projectionView;
     glm::vec4 ambientLightColor{1.0f, 1.0f, 1.0f, 0.1f};                      // RGB 1.0(흰색) + 강도 0.1(10%)
-    glm::vec3 lightDirection = glm::normalize(glm::vec3(1.0f, -3.0f, -1.0f)); // 하늘에서 비스듬히 떨어지는 빛
+    glm::vec3 lightDirection = glm::normalize(glm::vec3(0.5f, -3.0f, 1.0f)); // 하늘에서 비스듬히 떨어지는 빛
     alignas(16) glm::vec4 lightColor{1.0f, 1.0f, 1.0f, 1.0f};                 // 직사광선의 색상과 강도
 
     glm::mat4 finalBonesMatrices[MAX_BONES];
@@ -82,10 +82,10 @@ int main()
         // 바닥용 평면(Plane) 모델 수동 생성
         EngineModel::Builder floorBuilder{};
         floorBuilder.vertices = {
-            {{-20.0f, 0.0f, -20.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, -1.0f, 0.0f}, {0.0f, 0.0f}},
-            {{-20.0f, 0.0f,  20.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, -1.0f, 0.0f}, {0.0f, 10.0f}},
-            {{ 20.0f, 0.0f,  20.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, -1.0f, 0.0f}, {10.0f, 10.0f}},
-            {{ 20.0f, 0.0f, -20.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, -1.0f, 0.0f}, {10.0f, 0.0f}}
+            {{-20.0f, 0.0f, -20.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+            {{-20.0f, 0.0f,  20.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 10.0f}},
+            {{ 20.0f, 0.0f,  20.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f, 0.0f}, {10.0f, 10.0f}},
+            {{ 20.0f, 0.0f, -20.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f, 0.0f}, {10.0f, 0.0f}}
         };
         floorBuilder.indices = {0, 1, 2, 2, 3, 0};
         auto floorModel = std::make_shared<EngineModel>(device, floorBuilder);
@@ -178,14 +178,14 @@ int main()
         // 3. 뷰어(관찰자 카메라) 엔티티 생성
         auto viewerEntity = registry.create();
         auto &viewerTransform = registry.emplace<TransformComponent>(viewerEntity);
-        viewerTransform.translation = {0.f, 5.0f, -5.0f};
+        viewerTransform.translation = {0.f, 2.0f, -5.0f};
 
         // 키보드 조종기 생성
         KeyboardMovementController cameraController{};
 
         EngineCamera camera{};
         // 위치는 (0, 0, -2.5)로 살짝 뒤로 물러나서, (0, 0, 0) 원점을 바라보게 세팅!
-        camera.setViewTarget(glm::vec3(0.f, 10.0f, -5.0f), glm::vec3(0.f, 0.0f, 0.f));
+        camera.setViewTarget(glm::vec3(0.f, 2.0f, -5.0f), glm::vec3(0.f, 0.0f, 0.f));
 
         VkCommandBufferAllocateInfo allocInfo{};
         allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
