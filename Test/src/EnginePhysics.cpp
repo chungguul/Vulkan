@@ -366,36 +366,81 @@ void EnginePhysics::syncRagdollBones(uint32_t ragdollID, const std::map<std::str
     glm::mat4 rUpperArmRot = getLocalRot(8); 
     glm::mat4 rForearmRot = getLocalRot(9);
 
-    // 3. 부위별 스키닝 연산
+    // 헬퍼 1: FBX offset 행렬에서 관절의 원래 위치(Bind Pose Pivot) 추출
+    auto getPivot = [](const glm::mat4& offset) {
+        return glm::vec3(glm::inverse(offset)[3]);
+    };
+
+    // 헬퍼 2: 지정된 피벗(관절)을 중심으로 회전하는 변환 행렬 생성
+    auto makeTransform = [](const glm::vec3& pivotOut, const glm::mat4& rot, const glm::vec3& pivotIn) {
+        glm::mat4 out = glm::translate(glm::mat4(1.0f), pivotOut); // 3. 갱신된 관절 위치로 이동
+        out = out * rot;                                           // 2. 회전 적용
+        out = glm::translate(out, -pivotIn);                       // 1. 원점을 관절 위치로 맞춤
+        return out;
+    };
+
+    // 1. 각 뼈대의 원래 관절 중심점(피벗) 가져오기
+    glm::vec3 headPivot = getPivot(boneInfoMap.at("Bip001 Head").offset);
+    glm::vec3 lThighPivot = getPivot(boneInfoMap.at("Bip001 L Thigh").offset);
+    glm::vec3 lCalfPivot = getPivot(boneInfoMap.at("Bip001 L Calf").offset);
+    glm::vec3 rThighPivot = getPivot(boneInfoMap.at("Bip001 R Thigh").offset);
+    glm::vec3 rCalfPivot = getPivot(boneInfoMap.at("Bip001 R Calf").offset);
+    glm::vec3 lUpperArmPivot = getPivot(boneInfoMap.at("Bip001 L UpperArm").offset);
+    glm::vec3 lForearmPivot = getPivot(boneInfoMap.at("Bip001 L Forearm").offset);
+    glm::vec3 rUpperArmPivot = getPivot(boneInfoMap.at("Bip001 R UpperArm").offset);
+    glm::vec3 rForearmPivot = getPivot(boneInfoMap.at("Bip001 R Forearm").offset);
+
+    // 2. 부모 뼈대 (어깨, 허벅지, 머리) 변환 행렬 계산
+    glm::mat4 headMatrix = makeTransform(headPivot, headRot, headPivot);
+    glm::mat4 lThighMatrix = makeTransform(lThighPivot, lThighRot, lThighPivot);
+    glm::mat4 rThighMatrix = makeTransform(rThighPivot, rThighRot, rThighPivot);
+    glm::mat4 lUpperArmMatrix = makeTransform(lUpperArmPivot, lUpperArmRot, lUpperArmPivot);
+    glm::mat4 rUpperArmMatrix = makeTransform(rUpperArmPivot, rUpperArmRot, rUpperArmPivot);
+
+    // 3. 자식 뼈대 (팔뚝, 종아리)의 피벗 위치를 부모의 움직임에 맞춰 이동시킴! (가장 중요)
+    glm::vec3 animLCalfPivot = glm::vec3(lThighMatrix * glm::vec4(lCalfPivot, 1.0f));
+    glm::vec3 animRCalfPivot = glm::vec3(rThighMatrix * glm::vec4(rCalfPivot, 1.0f));
+    glm::vec3 animLForearmPivot = glm::vec3(lUpperArmMatrix * glm::vec4(lForearmPivot, 1.0f));
+    glm::vec3 animRForearmPivot = glm::vec3(rUpperArmMatrix * glm::vec4(rForearmPivot, 1.0f));
+
+    // 4. 이동된 피벗을 기준으로 자식 뼈대의 회전 적용 (이음새가 완벽히 맞물림)
+    glm::mat4 lCalfMatrix = makeTransform(animLCalfPivot, lCalfRot, lCalfPivot);
+    glm::mat4 rCalfMatrix = makeTransform(animRCalfPivot, rCalfRot, rCalfPivot);
+    glm::mat4 lForearmMatrix = makeTransform(animLForearmPivot, lForearmRot, lForearmPivot);
+    glm::mat4 rForearmMatrix = makeTransform(animRForearmPivot, rForearmRot, rForearmPivot);
+
+    // =========================================================
+
+    // 5. 부위별 스키닝 최종 할당 (기존의 복잡한 inverse(offset) 계산을 지우고 깔끔하게 대입만 합니다)
     for (const auto& [boneName, boneInfo] : boneInfoMap) {
         glm::mat4 deformMatrix = glm::mat4(1.0f); 
 
         if (boneName.find("Head") != std::string::npos || boneName.find("EYE") != std::string::npos || boneName.find("Ear") != std::string::npos || boneName.find("Hair") != std::string::npos) {
-            deformMatrix = glm::inverse(boneInfoMap.at("Bip001 Head").offset) * headRot * boneInfoMap.at("Bip001 Head").offset;
+            deformMatrix = headMatrix;
         } 
         else if (boneName.find("L Thigh") != std::string::npos) {
-            deformMatrix = glm::inverse(boneInfoMap.at("Bip001 L Thigh").offset) * lThighRot * boneInfoMap.at("Bip001 L Thigh").offset;
+            deformMatrix = lThighMatrix;
         }
         else if (boneName.find("L Calf") != std::string::npos || boneName.find("L Foot") != std::string::npos || boneName.find("L Toe") != std::string::npos) {
-            deformMatrix = glm::inverse(boneInfoMap.at("Bip001 L Calf").offset) * lCalfRot * boneInfoMap.at("Bip001 L Calf").offset;
+            deformMatrix = lCalfMatrix; // 발도 종아리를 따라가게 붙입니다.
         }
         else if (boneName.find("R Thigh") != std::string::npos) {
-            deformMatrix = glm::inverse(boneInfoMap.at("Bip001 R Thigh").offset) * rThighRot * boneInfoMap.at("Bip001 R Thigh").offset;
+            deformMatrix = rThighMatrix;
         }
         else if (boneName.find("R Calf") != std::string::npos || boneName.find("R Foot") != std::string::npos || boneName.find("R Toe") != std::string::npos) {
-            deformMatrix = glm::inverse(boneInfoMap.at("Bip001 R Calf").offset) * rCalfRot * boneInfoMap.at("Bip001 R Calf").offset;
+            deformMatrix = rCalfMatrix;
         }
         else if (boneName.find("L Clavicle") != std::string::npos || boneName.find("L UpperArm") != std::string::npos) {
-            deformMatrix = glm::inverse(boneInfoMap.at("Bip001 L UpperArm").offset) * lUpperArmRot * boneInfoMap.at("Bip001 L UpperArm").offset;
+            deformMatrix = lUpperArmMatrix;
         }
         else if (boneName.find("L Forearm") != std::string::npos || boneName.find("L Hand") != std::string::npos || boneName.find("L Finger") != std::string::npos) {
-            deformMatrix = glm::inverse(boneInfoMap.at("Bip001 L Forearm").offset) * lForearmRot * boneInfoMap.at("Bip001 L Forearm").offset;
+            deformMatrix = lForearmMatrix; // 손바닥과 손가락도 팔뚝에 단단히 고정!
         }
         else if (boneName.find("R Clavicle") != std::string::npos || boneName.find("R UpperArm") != std::string::npos) {
-            deformMatrix = glm::inverse(boneInfoMap.at("Bip001 R UpperArm").offset) * rUpperArmRot * boneInfoMap.at("Bip001 R UpperArm").offset;
+            deformMatrix = rUpperArmMatrix;
         }
         else if (boneName.find("R Forearm") != std::string::npos || boneName.find("R Hand") != std::string::npos || boneName.find("R Finger") != std::string::npos) {
-            deformMatrix = glm::inverse(boneInfoMap.at("Bip001 R Forearm").offset) * rForearmRot * boneInfoMap.at("Bip001 R Forearm").offset;
+            deformMatrix = rForearmMatrix;
         }
 
         outFinalBones[boneInfo.id] = deformMatrix;
