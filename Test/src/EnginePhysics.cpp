@@ -11,6 +11,9 @@
 #include <Jolt/Skeleton/Skeleton.h>
 #include <Jolt/Skeleton/SkeletonPose.h>
 
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/matrix_decompose.hpp>
+
 #include <iostream>
 #include <cstdarg>
 #include <thread>
@@ -191,7 +194,7 @@ uint32_t EnginePhysics::createSimpleRagdoll(glm::vec3 position) {
     ragdollSettings->mSkeleton = skeleton;
 
     // --- 1. 파트(캡슐) 생성 ---
-auto createPart = [](float length, float radius, RVec3 pos) {
+    auto createPart = [](float length, float radius, RVec3 pos) {
         RagdollSettings::Part part;
         part.mPosition = pos;
         part.mRotation = Quat::sIdentity();
@@ -291,10 +294,10 @@ auto createPart = [](float length, float radius, RVec3 pos) {
     pose.SetSkeleton(skeleton);
     pose.CalculateJointMatrices(); // 기본 차렷 자세의 행렬 계산
     
-    // [해결 2] Jolt 5.5.0 정석: SetPose에 시작 위치와 행렬 데이터를 한 번에 전달
-    ragdoll->SetPose(RVec3(position.x, position.y, position.z), pose.GetJointMatrices().data());
-    
     ragdoll->AddToPhysicsSystem(EActivation::Activate);
+    
+    // 포즈 세팅
+    ragdoll->SetPose(RVec3(position.x, position.y, position.z), pose.GetJointMatrices().data());
     
     ragdolls.push_back(ragdoll);
     return (uint32_t)(ragdolls.size() - 1);
@@ -329,4 +332,72 @@ void EnginePhysics::applyImpulseToRagdoll(uint32_t ragdollID, glm::vec3 impulse,
     // 특정 파트(기본값 0: Pelvis/몸통)의 BodyID를 가져와서 힘을 가합니다.
     JPH::BodyID bodyID = ragdolls[ragdollID]->GetBodyID(partIndex);
     physicsSystem->GetBodyInterface().AddImpulse(bodyID, JPH::Vec3(impulse.x, impulse.y, impulse.z));
+}
+
+void EnginePhysics::syncRagdollBones(uint32_t ragdollID, const std::map<std::string, BoneInfo>& boneInfoMap, glm::mat4* outFinalBones, glm::vec3& outRootPos, glm::vec3& outRootRot) {
+    if (ragdollID >= ragdolls.size()) return;
+
+    glm::mat4 physicsBones[10]; 
+    updateRagdollBones(ragdollID, physicsBones, 10);
+
+    // 1. 모델 루트(Pelvis) 동기화
+    glm::vec3 scale, skew;
+    glm::vec4 perspective;
+    glm::quat rotationQuat;
+    glm::decompose(physicsBones[0], scale, rotationQuat, outRootPos, skew, perspective);
+    outRootRot = glm::eulerAngles(rotationQuat);
+
+    glm::quat qBody = glm::quat_cast(physicsBones[0]);
+
+    // 자식 뼈대들의 '순수 회전 행렬' 계산 람다
+    auto getLocalRot = [&](int physicsIndex) {
+        glm::quat qChild = glm::quat_cast(physicsBones[physicsIndex]);
+        return glm::mat4_cast(glm::inverse(qBody) * qChild);
+    };
+
+    // 각 뼈대의 순수 회전 행렬
+    glm::mat4 headRot = getLocalRot(1);
+    glm::mat4 lThighRot = getLocalRot(2);
+    glm::mat4 lCalfRot = getLocalRot(3);
+    glm::mat4 rThighRot = getLocalRot(4);
+    glm::mat4 rCalfRot = getLocalRot(5);
+    glm::mat4 lUpperArmRot = getLocalRot(6); 
+    glm::mat4 lForearmRot = getLocalRot(7);
+    glm::mat4 rUpperArmRot = getLocalRot(8); 
+    glm::mat4 rForearmRot = getLocalRot(9);
+
+    // 3. 부위별 스키닝 연산
+    for (const auto& [boneName, boneInfo] : boneInfoMap) {
+        glm::mat4 deformMatrix = glm::mat4(1.0f); 
+
+        if (boneName.find("Head") != std::string::npos || boneName.find("EYE") != std::string::npos || boneName.find("Ear") != std::string::npos || boneName.find("Hair") != std::string::npos) {
+            deformMatrix = glm::inverse(boneInfoMap.at("Bip001 Head").offset) * headRot * boneInfoMap.at("Bip001 Head").offset;
+        } 
+        else if (boneName.find("L Thigh") != std::string::npos) {
+            deformMatrix = glm::inverse(boneInfoMap.at("Bip001 L Thigh").offset) * lThighRot * boneInfoMap.at("Bip001 L Thigh").offset;
+        }
+        else if (boneName.find("L Calf") != std::string::npos || boneName.find("L Foot") != std::string::npos || boneName.find("L Toe") != std::string::npos) {
+            deformMatrix = glm::inverse(boneInfoMap.at("Bip001 L Calf").offset) * lCalfRot * boneInfoMap.at("Bip001 L Calf").offset;
+        }
+        else if (boneName.find("R Thigh") != std::string::npos) {
+            deformMatrix = glm::inverse(boneInfoMap.at("Bip001 R Thigh").offset) * rThighRot * boneInfoMap.at("Bip001 R Thigh").offset;
+        }
+        else if (boneName.find("R Calf") != std::string::npos || boneName.find("R Foot") != std::string::npos || boneName.find("R Toe") != std::string::npos) {
+            deformMatrix = glm::inverse(boneInfoMap.at("Bip001 R Calf").offset) * rCalfRot * boneInfoMap.at("Bip001 R Calf").offset;
+        }
+        else if (boneName.find("L Clavicle") != std::string::npos || boneName.find("L UpperArm") != std::string::npos) {
+            deformMatrix = glm::inverse(boneInfoMap.at("Bip001 L UpperArm").offset) * lUpperArmRot * boneInfoMap.at("Bip001 L UpperArm").offset;
+        }
+        else if (boneName.find("L Forearm") != std::string::npos || boneName.find("L Hand") != std::string::npos || boneName.find("L Finger") != std::string::npos) {
+            deformMatrix = glm::inverse(boneInfoMap.at("Bip001 L Forearm").offset) * lForearmRot * boneInfoMap.at("Bip001 L Forearm").offset;
+        }
+        else if (boneName.find("R Clavicle") != std::string::npos || boneName.find("R UpperArm") != std::string::npos) {
+            deformMatrix = glm::inverse(boneInfoMap.at("Bip001 R UpperArm").offset) * rUpperArmRot * boneInfoMap.at("Bip001 R UpperArm").offset;
+        }
+        else if (boneName.find("R Forearm") != std::string::npos || boneName.find("R Hand") != std::string::npos || boneName.find("R Finger") != std::string::npos) {
+            deformMatrix = glm::inverse(boneInfoMap.at("Bip001 R Forearm").offset) * rForearmRot * boneInfoMap.at("Bip001 R Forearm").offset;
+        }
+
+        outFinalBones[boneInfo.id] = deformMatrix;
+    }
 }

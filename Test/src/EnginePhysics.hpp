@@ -1,6 +1,8 @@
 #pragma once
 #include <glm/glm.hpp>
 
+#include "EngineModel.hpp"
+
 // Jolt Physics 기본 헤더
 #include <Jolt/Jolt.h>
 #include <Jolt/Physics/PhysicsSystem.h>
@@ -10,6 +12,7 @@
 
 #include <memory>
 #include <vector>
+#include <map>
 
 class EnginePhysics {
 public:
@@ -34,6 +37,7 @@ public:
     uint32_t createSimpleRagdoll(glm::vec3 position);
     // 래그돌의 현재 물리 상태를 기반으로, 뼈대 행렬 배열을 덮어씌웁니다.
     void updateRagdollBones(uint32_t ragdollID, glm::mat4* outBones, int maxBones);
+    void syncRagdollBones(uint32_t ragdollID, const std::map<std::string, BoneInfo>& boneInfoMap, glm::mat4* outFinalBones, glm::vec3& outRootPos, glm::vec3& outRootRot);
 
     void applyImpulseToRagdoll(uint32_t ragdollID, glm::vec3 impulse, int partIndex = 0);
 private:

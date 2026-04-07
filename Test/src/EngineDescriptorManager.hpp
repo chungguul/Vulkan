@@ -14,6 +14,7 @@ public:
 
     VkDescriptorSetLayout getGlobalSetLayout() const { return globalSetLayout; }
     VkDescriptorSet getGlobalDescriptorSet() const { return globalDescriptorSet; }
+    VkDescriptorPool getDescriptorPool() const { return descriptorPool; }
 
 private:
     EngineDevice& engineDevice;

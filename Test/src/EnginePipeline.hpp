@@ -5,22 +5,43 @@
 #include <vector>
 #include <vulkan/vulkan.h>
 
+struct PipelineConfigInfo {
+    std::vector<VkVertexInputBindingDescription> bindingDescriptions{};
+    std::vector<VkVertexInputAttributeDescription> attributeDescriptions{};
+    VkPipelineViewportStateCreateInfo viewportInfo{};
+    VkViewport viewport{};
+    VkRect2D scissor{};
+    VkPipelineInputAssemblyStateCreateInfo inputAssemblyInfo{};
+    VkPipelineRasterizationStateCreateInfo rasterizationInfo{};
+    VkPipelineMultisampleStateCreateInfo multisampleInfo{};
+    VkPipelineColorBlendAttachmentState colorBlendAttachment{};
+    VkPipelineColorBlendStateCreateInfo colorBlendInfo{};
+    VkPipelineDepthStencilStateCreateInfo depthStencilInfo{};
+    
+    std::vector<VkDescriptorSetLayout> descriptorSetLayouts{};
+    std::vector<VkPushConstantRange> pushConstantRanges{};
+    VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
+    VkRenderPass renderPass = VK_NULL_HANDLE;
+    uint32_t subpass = 0;
+};
+
+
 class EnginePipeline {
 public:
     // 생성자 맨 끝에 pushConstantRanges 배열을 받을 수 있도록 추가합니다.
     EnginePipeline(
-        EngineDevice& device, 
-        const std::string& vertFilepath, 
-        const std::string& fragFilepath, 
-        VkRenderPass renderPass, 
-        uint32_t width, uint32_t height,
-        const std::vector<VkDescriptorSetLayout>& descriptorSetLayouts,
-        const std::vector<VkPushConstantRange>& pushConstantRanges = {}); // 기본값은 빈 배열
+            EngineDevice& device, 
+            const std::string& vertFilepath, 
+            const std::string& fragFilepath, 
+            const PipelineConfigInfo& configInfo
+    );
     
     ~EnginePipeline();
 
     VkPipeline getPipeline() { return graphicsPipeline; }
     VkPipelineLayout getPipelineLayout() { return pipelineLayout; }
+
+    static void defaultPipelineConfigInfo(PipelineConfigInfo& configInfo, uint32_t width, uint32_t height);
 
 private:
     static std::vector<char> readFile(const std::string& filepath);
@@ -28,14 +49,14 @@ private:
     void createGraphicsPipeline(
         const std::string& vertFilepath, 
         const std::string& fragFilepath, 
-        VkRenderPass renderPass, 
-        uint32_t width, uint32_t height, 
-        const std::vector<VkDescriptorSetLayout>& descriptorSetLayouts,
-        const std::vector<VkPushConstantRange>& pushConstantRanges);
+        const PipelineConfigInfo& configInfo
+    );
         
     VkShaderModule createShaderModule(const std::vector<char>& code);
 
     EngineDevice& engineDevice;
     VkPipeline graphicsPipeline;
     VkPipelineLayout pipelineLayout;
+
+    bool ownsPipelineLayout = false;
 };
