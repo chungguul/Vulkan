@@ -14,6 +14,7 @@
 #include "EnginePhysics.hpp"
 #include "EngineCubemap.hpp"
 #include "EngineSkybox.hpp"
+#include "EngineShadow.hpp"
 
 #include <glm/gtx/matrix_decompose.hpp>
 
@@ -39,6 +40,8 @@ struct GlobalUbo
 
     glm::mat4 view;
     glm::mat4 proj;
+
+    glm::mat4 lightSpaceMatrix;
 };
 
 // 푸시 상수는 이제 Model 변환만 담당합니다.
@@ -69,11 +72,23 @@ int main()
         // 텍스처 세팅
         std::cout << "텍스처 로딩 중..." << std::endl;
         EngineTexture myTexture{device, "../textures/Korone_Map.png"};
+        EngineTexture woodTexture{device, "../textures/wood1.jpg"};
 
         VkDescriptorImageInfo imageInfo{};
         imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         imageInfo.imageView = myTexture.getImageView();
         imageInfo.sampler = myTexture.getSampler();
+
+        // 바닥용 평면(Plane) 모델 수동 생성
+        EngineModel::Builder floorBuilder{};
+        floorBuilder.vertices = {
+            {{-20.0f, 0.0f, -20.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, -1.0f, 0.0f}, {0.0f, 0.0f}},
+            {{-20.0f, 0.0f,  20.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, -1.0f, 0.0f}, {0.0f, 10.0f}},
+            {{ 20.0f, 0.0f,  20.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, -1.0f, 0.0f}, {10.0f, 10.0f}},
+            {{ 20.0f, 0.0f, -20.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, -1.0f, 0.0f}, {10.0f, 0.0f}}
+        };
+        floorBuilder.indices = {0, 1, 2, 2, 3, 0};
+        auto floorModel = std::make_shared<EngineModel>(device, floorBuilder);
 
         // HDR 스카이박스 텍스쳐 로딩
         EngineTexture hdrSkyboxTexture{device};
@@ -83,7 +98,6 @@ int main()
         std::cout << "텍스처 로딩 완료..." << std::endl;
         // ★ 2. 디스크립터 매니저 생성 및 세팅 (두 줄 컷!)
         EngineDescriptorManager descriptorManager{device};
-        descriptorManager.allocateGlobalDescriptorSet(uboBuffer.descriptorInfo(), imageInfo);
 
         VkPushConstantRange pushConstantRange{};
         pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
@@ -93,6 +107,9 @@ int main()
         // 파이프라인 세팅
         PipelineConfigInfo pipelineConfig{};
         EnginePipeline::defaultPipelineConfigInfo(pipelineConfig, WIDTH, HEIGHT);
+
+        pipelineConfig.rasterizationInfo.frontFace = VK_FRONT_FACE_CLOCKWISE;
+        //pipelineConfig.rasterizationInfo.cullMode = VK_CULL_MODE_NONE;
 
         pipelineConfig.renderPass = swapChain.getRenderPass();
         pipelineConfig.descriptorSetLayouts = {descriptorManager.getGlobalSetLayout()};
@@ -137,11 +154,18 @@ int main()
         // 캐릭터 엔티티 생성 및 부품 장착
         auto koroneEntity = registry.create();
         auto &koroneTransform = registry.emplace<TransformComponent>(koroneEntity);
-        koroneTransform.translation = {0.0f, 5.0f, 0.0f};
+        koroneTransform.translation = {0.0f, 10.0f, 0.0f};
         koroneTransform.rotation = {0.0f, 0.0f, 0.0f};
         koroneTransform.scale = {0.01f, 0.01f, 0.01f};
         // koroneTransform.scale = {0.1f,0.1f, 0.1f};
         registry.emplace<ModelComponent>(koroneEntity, kedamaModel);
+
+        // 바닥 엔티티 생성
+        auto floorEntity = registry.create();
+        auto &floorTransform = registry.emplace<TransformComponent>(floorEntity);
+        floorTransform.translation = {0.0f, 0.0f, 0.0f}; 
+        floorTransform.scale = {1.0f, 1.0f, 1.0f};
+        registry.emplace<ModelComponent>(floorEntity, floorModel);
 
         // rigid body 부착
         //uint32_t koroneBodyID = physicsEngine.createBox(koroneTransform.translation, glm::vec3(0.5f, 0.5f, 0.5f), true);
@@ -154,14 +178,14 @@ int main()
         // 3. 뷰어(관찰자 카메라) 엔티티 생성
         auto viewerEntity = registry.create();
         auto &viewerTransform = registry.emplace<TransformComponent>(viewerEntity);
-        viewerTransform.translation = {0.f, 0.f, 2.5f};
+        viewerTransform.translation = {0.f, 5.0f, -5.0f};
 
         // 키보드 조종기 생성
         KeyboardMovementController cameraController{};
 
         EngineCamera camera{};
         // 위치는 (0, 0, -2.5)로 살짝 뒤로 물러나서, (0, 0, 0) 원점을 바라보게 세팅!
-        camera.setViewTarget(glm::vec3(0.f, 0.0f, -5.0f), glm::vec3(0.f, 10.0f, 0.f));
+        camera.setViewTarget(glm::vec3(0.f, 10.0f, -5.0f), glm::vec3(0.f, 0.0f, 0.f));
 
         VkCommandBufferAllocateInfo allocInfo{};
         allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -182,7 +206,63 @@ int main()
             skyboxCubemap,
             descriptorManager.getGlobalSetLayout(),
             uboBufferArray,
-            sizeof(GlobalUbo)};
+            sizeof(GlobalUbo)
+        };
+
+        std::cout << "그림자 시스템 로딩 중..." << std::endl;
+        
+        // 1. 그림자 도화지(Framebuffer) 객체 생성 (2048x2048 해상도)
+        EngineShadow engineShadow{device, 2048, 2048};
+
+        // 1. 코로네 텍스처용 정보
+        VkDescriptorImageInfo koroneImageInfo{};
+        koroneImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        koroneImageInfo.imageView = myTexture.getImageView();
+        koroneImageInfo.sampler = myTexture.getSampler();
+
+        // 2. 바닥 나무 텍스처용 정보
+        VkDescriptorImageInfo floorImageInfo{};
+        floorImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        floorImageInfo.imageView = woodTexture.getImageView();
+        floorImageInfo.sampler = woodTexture.getSampler();
+
+        // 3. 섀도우 맵 텍스처 정보
+        VkDescriptorImageInfo shadowImageInfo{};
+        shadowImageInfo.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+        shadowImageInfo.imageView = engineShadow.getImageView();
+        shadowImageInfo.sampler = engineShadow.getSampler();
+
+        // ★ 대망의 세트 분리! 이제 공장에서 2개의 세트를 독립적으로 찍어냅니다.
+        VkDescriptorSet koroneSet = descriptorManager.allocateDescriptorSet(uboBuffer.descriptorInfo(), koroneImageInfo, shadowImageInfo);
+        VkDescriptorSet floorSet = descriptorManager.allocateDescriptorSet(uboBuffer.descriptorInfo(), floorImageInfo, shadowImageInfo);
+
+        // 2. 그림자 전용 파이프라인 설정
+        PipelineConfigInfo shadowPipelineConfig{};
+        // 해상도는 스왑체인(화면) 크기가 아니라 그림자 도화지의 크기를 따라갑니다!
+        EnginePipeline::defaultPipelineConfigInfo(shadowPipelineConfig, engineShadow.getWidth(), engineShadow.getHeight());
+        
+        // 컬러 블렌딩 설정을 반드시 0으로 꺼주어야 Vulkan이 뻗지 않습니다!
+        shadowPipelineConfig.colorBlendInfo.attachmentCount = 0;
+        shadowPipelineConfig.colorBlendInfo.pAttachments = nullptr;
+
+        // 피터팬 현상(그림자가 공중에 뜨는 현상) 방지를 위해 앞면을 잘라냅니다.
+        shadowPipelineConfig.rasterizationInfo.cullMode = VK_CULL_MODE_FRONT_BIT;
+        // 메인 화면이 아닌 그림자 도화지의 렌더패스를 연결!
+        shadowPipelineConfig.renderPass = engineShadow.getRenderPass(); 
+        
+        shadowPipelineConfig.descriptorSetLayouts = {descriptorManager.getGlobalSetLayout()};
+        shadowPipelineConfig.pushConstantRanges = {pushConstantRange};
+
+        // 3. 그림자 파이프라인 생성
+        EnginePipeline shadowPipeline{
+            device,
+            "../Test/shaders/shadow.vert.spv",
+            "../Test/shaders/shadow.frag.spv",
+            shadowPipelineConfig
+        };
+
+        std::cout << "그림자 시스템 로딩 완료..." << std::endl;
+
 
         std::cout << "엔진 루프 진입 중..." << std::endl;
         auto currentTime = std::chrono::high_resolution_clock::now();
@@ -192,54 +272,35 @@ int main()
         {
             window.pollEvents();
 
-            // Delta Time (dt) 계산
+            // 1. Delta Time (dt) 계산
             auto newTime = std::chrono::high_resolution_clock::now();
             float frameTime = std::chrono::duration<float, std::chrono::seconds::period>(newTime - currentTime).count();
             currentTime = newTime;
 
-            // 매 프레임 물리 연산 업데이트
+            // 2. 물리 연산 업데이트
             physicsEngine.update(frameTime);
 
-            // 오브젝트를 그리기 전 1회 UBO데이터 업데이트
+            // ★ UBO 객체를 여기서 '선언'만 합니다. (아직 GPU로 전송 안 함!)
             GlobalUbo ubo{};
-            ubo.view = camera.getView();
-            ubo.proj = camera.getProjection();
-            ubo.projectionView = camera.getProjection() * camera.getView();
- 
-            // 애니메이터가 계산한 최신 뼈대 행렬 100개를 UBO 구조체로 복사
-            //  auto transforms = animator.getFinalBoneMatrices();
-            //  for (int i = 0; i < MAX_BONES; ++i) {
-            //      ubo.finalBonesMatrices[i] = transforms[i];
-            //  }
 
-            // for (int i = 0; i < MAX_BONES; i++) {
-            //     ubo.finalBonesMatrices[i] = glm::mat4(1.0f);
-            // }
-
-            // ECS 동기화 시스템 (Physics -> Render Transform)
-            // Transform과 RigidBody를 모두 가진 엔티티만 찾음
+            // 3. ECS 물리 동기화
             auto physicsView = registry.view<TransformComponent, RigidBodyComponent>();
-            for (auto entity : physicsView)
-            {
+            for (auto entity : physicsView) {
                 auto &transform = physicsView.get<TransformComponent>(entity);
                 auto &rigidBody = physicsView.get<RigidBodyComponent>(entity);
-
-                // Jolt 물리 엔진이 계산한 '진짜 위치'를 가져와서, 렌더링용 Transform에 덮어씌웁니다!
                 transform.translation = physicsEngine.getBodyPosition(rigidBody.bodyID);
             }
 
-            // 래그돌을 가진 엔티티를 찾아서 뼈대 행렬을 업데이트합니다.
+            // 4. 래그돌 뼈대 행렬 계산 (계산된 값을 ubo에 넣습니다!)
             auto ragdollView = registry.view<TransformComponent, RagdollComponent, ModelComponent>();
-            for (auto entity : ragdollView)
-            {
+            for (auto entity : ragdollView) {
                 auto &transform = ragdollView.get<TransformComponent>(entity);
                 auto &ragdoll = ragdollView.get<RagdollComponent>(entity);
                 auto &modelComp = ragdollView.get<ModelComponent>(entity);
 
-                // ★ 100줄짜리 로직이 단 한 줄로 완벽하게 캡슐화되었습니다! ★
                 physicsEngine.syncRagdollBones(ragdoll.ragdollID, modelComp.model->getBoneInfoMap(), ubo.finalBonesMatrices, transform.translation, transform.rotation);
 
-                // 임펄스 (스페이스바)
+                // 임펄스 처리 (스페이스바)
                 static bool spacePressed = false;
                 if (glfwGetKey(window.getGLFWwindow(), GLFW_KEY_SPACE) == GLFW_PRESS) {
                     if (!spacePressed) {
@@ -250,25 +311,41 @@ int main()
                     spacePressed = false;
                 }
             }
-            // 뷰어 엔티티의 Transform 부품을 가져옵니다.
+
+            // 5. 카메라 및 조종기 업데이트
             auto &koroneTrans = registry.get<TransformComponent>(koroneEntity);
             auto &viewTrans = registry.get<TransformComponent>(viewerEntity);
-
-            // 컨트롤러와 카메라에 부품(viewTrans)을 연결합니다.
-            // cameraController.moveInPlaneXZ(window.getGLFWwindow(), frameTime, viewTrans);
-            // camera.setViewYXZ(viewTrans.translation, viewTrans.rotation);
-
-            // 카메라의 시선을 코로네의 위치로 강제 고정!
             cameraController.moveInPlaneXZ(window.getGLFWwindow(), frameTime, viewTrans);
             camera.setViewTarget(viewTrans.translation, koroneTrans.translation);
 
-            // ★ 3. 애니메이터 업데이트 및 UBO 전송 (기존과 동일)
+            // 화면 비율에 맞춰 원근감(Projection) 행렬을 계산합니다!
+            float aspect = swapChain.getWidth() / (float)swapChain.getHeight();
+            camera.setPerspectiveProjection(glm::radians(50.f), aspect, 0.1f, 1000.f);
+
+            // 애니메이터 업데이트
             animator.playAnimation(&idleAnimation);
             animator.updateAnimation(frameTime);
 
-            // ★ 매 프레임 화면 비율(Aspect Ratio)에 맞춰 원근감 행렬 갱신 ★
-            float aspect = swapChain.getWidth() / (float)swapChain.getHeight();
-            camera.setPerspectiveProjection(glm::radians(50.f), aspect, 0.1f, 1000.f);
+            // ==========================================================
+            // ★ 6. 모든 계산이 완료된 '진짜 완성본 데이터'를 UBO에 채웁니다.
+            // ==========================================================
+            ubo.view = camera.getView();
+            ubo.proj = camera.getProjection();
+
+            ubo.proj[1][1] *= -1.0f;
+
+            ubo.projectionView = ubo.proj * ubo.view;
+
+            // 그림자 전용 빛의 시야 계산
+            glm::mat4 lightProjection = glm::ortho(-10.0f, 10.0f, -10.0f, 10.0f, 1.0f, 50.0f);
+            lightProjection[1][1] *= -1.0f; 
+            glm::vec3 lightPos = -ubo.lightDirection * 20.0f; 
+            glm::mat4 lightView = glm::lookAt(lightPos, glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+            ubo.lightSpaceMatrix = lightProjection * lightView;
+
+            // ★ 7. 꽉 채워진 UBO를 비로소 GPU로 전송합니다! (버스 출발)
+            uboBuffer.writeToBuffer(&ubo);
+            // ==========================================================
 
             // (동기화 대기/확보)
             VkFence inFlightFence = swapChain.getInFlightFence();
@@ -279,11 +356,51 @@ int main()
             VkSemaphore imageAvailable = swapChain.getImageAvailableSemaphore();
             vkAcquireNextImageKHR(device.getDevice(), swapChain.getSwapChain(), UINT64_MAX, imageAvailable, VK_NULL_HANDLE, &imageIndex);
 
+            // ★ 중복 에러 해결: 커맨드 버퍼 초기화 및 선언은 여기서 한 번만!
             vkResetCommandBuffer(commandBuffer, 0);
             VkCommandBufferBeginInfo beginInfo{};
             beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
             vkBeginCommandBuffer(commandBuffer, &beginInfo);
 
+            // ==========================================================
+            // 패스 1: 섀도우 패스 (빛의 시점에서 깊이맵 굽기)
+            // ==========================================================
+            VkRenderPassBeginInfo shadowPassInfo{};
+            shadowPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+            shadowPassInfo.renderPass = engineShadow.getRenderPass();
+            shadowPassInfo.framebuffer = engineShadow.getFramebuffer();
+            shadowPassInfo.renderArea.offset = {0, 0};
+            shadowPassInfo.renderArea.extent = {engineShadow.getWidth(), engineShadow.getHeight()};
+
+            VkClearValue depthClear{};
+            depthClear.depthStencil = {1.0f, 0}; // 깊이 초기화
+            shadowPassInfo.clearValueCount = 1;
+            shadowPassInfo.pClearValues = &depthClear;
+
+            vkCmdBeginRenderPass(commandBuffer, &shadowPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+            vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPipeline.getPipeline());
+
+            auto view = registry.view<TransformComponent, ModelComponent>();
+            for (auto entity : view) {
+                auto &transform = view.get<TransformComponent>(entity);
+                auto &modelComp = view.get<ModelComponent>(entity);
+
+                SimplePushConstantData push{};
+                push.modelMatrix = transform.mat4();
+                vkCmdPushConstants(commandBuffer, shadowPipeline.getPipelineLayout(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(SimplePushConstantData), &push);
+
+                VkDescriptorSet currentSet = (modelComp.model == kedamaModel) ? koroneSet : floorSet;
+                vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPipeline.getPipelineLayout(), 0, 1, &currentSet, 0, nullptr);
+
+                modelComp.model->bind(commandBuffer);
+                modelComp.model->draw(commandBuffer);
+            }
+            vkCmdEndRenderPass(commandBuffer);
+
+            // ==========================================================
+            // 패스 2: 메인 렌더 패스 (진짜 화면에 그리기)
+            // ==========================================================
+            // ★ 중복 에러 해결: renderPassInfo 선언도 여기서 한 번만!
             VkRenderPassBeginInfo renderPassInfo{};
             renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
             renderPassInfo.renderPass = swapChain.getRenderPass();
@@ -292,60 +409,43 @@ int main()
             renderPassInfo.renderArea.extent = {(uint32_t)WIDTH, (uint32_t)HEIGHT};
 
             VkClearValue clearColor = {{{0.02f, 0.05f, 0.1f, 1.0f}}};
-
             VkClearValue clearDepth{};
             clearDepth.depthStencil = {1.0f, 0};
-
             std::vector<VkClearValue> clearValues = {clearColor, clearDepth};
-            // ==========================================================
-
+            
             renderPassInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
             renderPassInfo.pClearValues = clearValues.data();
-
+            
             vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
             vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.getPipeline());
 
-            // auto currentTime = std::chrono::high_resolution_clock::now();
-            // float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
-
-            // X, Y, Z축을 자유롭게 사용하여 회전 delta time으로 변경
-            // gameObjects[0].transform.rotation.y += frameTime * glm::radians(90.0f); // Y축 기준으로 빙글빙글(앞뒤로 도는 느낌)
-            // gameObjects[1].transform.rotation.z -= frameTime * glm::radians(45.0f); // Z축 기준
-            // gameObjects[2].transform.rotation.x += frameTime * glm::radians(45.0f); // X축 기준 (넘어지는 느낌)
-
-            uboBuffer.writeToBuffer(&ubo);
-
-            // 파이프라인에 디스크립터 셋(통신망) 장착!
-            VkDescriptorSet globalSet = descriptorManager.getGlobalDescriptorSet();
-            vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.getPipelineLayout(), 0, 1, &globalSet, 0, nullptr);
-
-            auto view = registry.view<TransformComponent, ModelComponent>();
-
-            for (auto entity : view)
-            {
+            for (auto entity : view) {
                 auto &transform = view.get<TransformComponent>(entity);
                 auto &modelComp = view.get<ModelComponent>(entity);
 
                 SimplePushConstantData push{};
                 push.modelMatrix = transform.mat4();
+                vkCmdPushConstants(commandBuffer, pipeline.getPipelineLayout(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(SimplePushConstantData), &push);
 
-                vkCmdPushConstants(
-                    commandBuffer,
-                    pipeline.getPipelineLayout(),
-                    VK_SHADER_STAGE_VERTEX_BIT,
-                    0,
-                    sizeof(SimplePushConstantData),
-                    &push);
+                // ★ 모델이 누구냐에 따라 디스크립터 셋(텍스처)을 갈아 끼웁니다!
+                VkDescriptorSet currentSet = (modelComp.model == kedamaModel) ? koroneSet : floorSet;
+                
+                vkCmdBindDescriptorSets(
+                    commandBuffer, 
+                    VK_PIPELINE_BIND_POINT_GRAPHICS, 
+                    pipeline.getPipelineLayout(), 
+                    0, 1, &currentSet, 0, nullptr
+                );
 
                 modelComp.model->bind(commandBuffer);
                 modelComp.model->draw(commandBuffer);
             }
 
-            // 스카이박스 그리기
             skyboxRenderer.render(commandBuffer, 0);
 
             vkCmdEndRenderPass(commandBuffer);
             vkEndCommandBuffer(commandBuffer);
+            // ==========================================================
 
             // (제출 및 Present 기존과 동일)
             VkSubmitInfo submitInfo{};

@@ -42,7 +42,7 @@ void main() {
     // 1. 현재 정점의 3D 로컬 좌표를 프래그먼트 셰이더(큐브맵 샘플링 방향)로 전달
     outUVW = positions[gl_VertexIndex];
 
-    outUVW.y *= -1.0;
+    //outUVW.y *= -1.0;
 
     // 2. 뷰 행렬에서 '이동(Translation)' 제거! (카메라가 움직여도 하늘은 제자리)
     mat4 rotView = mat4(mat3(ubo.view)); 

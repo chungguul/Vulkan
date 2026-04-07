@@ -10,15 +10,13 @@ public:
     EngineDescriptorManager(const EngineDescriptorManager&) = delete;
     EngineDescriptorManager& operator=(const EngineDescriptorManager&) = delete;
 
-    void allocateGlobalDescriptorSet(VkDescriptorBufferInfo bufferInfo, VkDescriptorImageInfo imageInfo);
+    VkDescriptorSet allocateDescriptorSet(VkDescriptorBufferInfo bufferInfo, VkDescriptorImageInfo imageInfo, VkDescriptorImageInfo shadowImageInfo);
 
     VkDescriptorSetLayout getGlobalSetLayout() const { return globalSetLayout; }
-    VkDescriptorSet getGlobalDescriptorSet() const { return globalDescriptorSet; }
     VkDescriptorPool getDescriptorPool() const { return descriptorPool; }
 
 private:
     EngineDevice& engineDevice;
     VkDescriptorSetLayout globalSetLayout;
     VkDescriptorPool descriptorPool;
-    VkDescriptorSet globalDescriptorSet;
 };

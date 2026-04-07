@@ -32,6 +32,8 @@ public:
 
     uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
 
+    VkPhysicalDevice getPhysicalDevice() const { return physicalDevice; }
+
     void createBuffer(
         VkDeviceSize size, 
         VkBufferUsageFlags usage, 
