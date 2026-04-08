@@ -29,6 +29,13 @@
 
 const int MAX_BONES = 100;
 
+const int MAX_POINT_LIGHTS = 10; // 최대 10개의 광원 허용
+
+struct PointLight {
+    glm::vec4 position; // xyz: 위치, w: 강도(intensity)
+    glm::vec4 color;    // xyz: 색상, w: 빈자리(padding)
+};
+
 // UBO(유니폼 버퍼)용 구조체 새로 생성
 struct GlobalUbo
 {
@@ -41,18 +48,21 @@ struct GlobalUbo
 
     glm::mat4 view;
     glm::mat4 proj;
-
     glm::mat4 lightSpaceMatrix;
-
     glm::vec4 clipPlane;
-
     float time;
+
+    PointLight pointLights[MAX_POINT_LIGHTS];
+    int numPointLights;
 };
 
 // 푸시 상수는 이제 Model 변환만 담당합니다.
 struct SimplePushConstantData
 {
     glm::mat4 modelMatrix{1.0f};
+
+    float roughness{0.8f};
+    float metallic{0.0f};
 };
 
 const int WIDTH = 1920;
@@ -205,14 +215,24 @@ int main()
         koroneTransform.rotation = {0.0f, 0.0f, 0.0f};
         koroneTransform.scale = {0.01f, 0.01f, 0.01f};
         // koroneTransform.scale = {0.1f,0.1f, 0.1f};
-        registry.emplace<ModelComponent>(koroneEntity, kedamaModel);
+
+        auto &koroneModel = registry.emplace<ModelComponent>(koroneEntity, kedamaModel);
+        koroneModel.roughness = 0.9f; // 코로네는 뽀송뽀송하게
+        koroneModel.metallic = 0.0f;
+
+        //registry.emplace<ModelComponent>(koroneEntity, kedamaModel);
 
         // 바닥 엔티티 생성
         auto floorEntity = registry.create();
         auto &floorTransform = registry.emplace<TransformComponent>(floorEntity);
         floorTransform.translation = {0.0f, 0.0f, 0.0f}; 
         floorTransform.scale = {1.0f, 1.0f, 1.0f};
-        registry.emplace<ModelComponent>(floorEntity, floorModel);
+
+        auto &floorModelComp = registry.emplace<ModelComponent>(floorEntity, floorModel);
+        floorModelComp.roughness = 0.75f; // 바닥은 모래알 반사가 살짝 있게
+        floorModelComp.metallic = 0.05f;
+
+        //registry.emplace<ModelComponent>(floorEntity, floorModel);
 
         // rigid body 부착
         //uint32_t koroneBodyID = physicsEngine.createBox(koroneTransform.translation, glm::vec3(0.5f, 0.5f, 0.5f), true);
@@ -363,6 +383,18 @@ int main()
             .bindImage(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &dudvInfo)   // ★ 추가
             .bindImage(4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &normalInfo) // ★ 추가
             .build(waterSet);
+
+        auto &koroneModelComp = registry.get<ModelComponent>(koroneEntity);
+        koroneModelComp.mainSet = koroneMainSet;
+        koroneModelComp.reflectionSet = koroneReflectionSet;
+        koroneModelComp.refractionSet = koroneRefractionSet;
+
+        auto &floorComp = registry.get<ModelComponent>(floorEntity);
+        floorComp.mainSet = floorMainSet;
+        floorComp.reflectionSet = floorReflectionSet;
+        floorComp.refractionSet = floorRefractionSet;
+
+
         PipelineConfigInfo shadowPipelineConfig{};
         // 해상도는 스왑체인(화면) 크기가 아니라 그림자 도화지의 크기를 따라갑니다!
         EnginePipeline::defaultPipelineConfigInfo(shadowPipelineConfig, engineShadow.getWidth(), engineShadow.getHeight());
@@ -541,9 +573,7 @@ int main()
                 push.modelMatrix = transform.mat4();
                 vkCmdPushConstants(commandBuffer, shadowPipeline.getPipelineLayout(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(SimplePushConstantData), &push);
 
-                VkDescriptorSet currentSet = (modelComp.model == kedamaModel) ? koroneMainSet : floorMainSet;
-                vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPipeline.getPipelineLayout(), 0, 1, &currentSet, 0, nullptr);
-
+                vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPipeline.getPipelineLayout(), 0, 1, &modelComp.mainSet, 0, nullptr);
                 modelComp.model->bind(commandBuffer);
                 modelComp.model->draw(commandBuffer);
             }
@@ -577,9 +607,7 @@ int main()
                 vkCmdPushConstants(commandBuffer, pipeline.getPipelineLayout(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(SimplePushConstantData), &push);
 
                 // ★ 반사용 텍스처 세트 장착!
-                VkDescriptorSet currentSet = (modelComp.model == kedamaModel) ? koroneReflectionSet : floorReflectionSet;
-                vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.getPipelineLayout(), 0, 1, &currentSet, 0, nullptr);
-
+                vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.getPipelineLayout(), 0, 1, &modelComp.reflectionSet, 0, nullptr);
                 modelComp.model->bind(commandBuffer);
                 modelComp.model->draw(commandBuffer);
             }
@@ -605,9 +633,7 @@ int main()
                 vkCmdPushConstants(commandBuffer, pipeline.getPipelineLayout(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(SimplePushConstantData), &push);
 
                 // ★ 굴절용 텍스처 세트 장착!
-                VkDescriptorSet currentSet = (modelComp.model == kedamaModel) ? koroneRefractionSet : floorRefractionSet;
-                vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.getPipelineLayout(), 0, 1, &currentSet, 0, nullptr);
-
+                vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.getPipelineLayout(), 0, 1, &modelComp.refractionSet, 0, nullptr);
                 modelComp.model->bind(commandBuffer);
                 modelComp.model->draw(commandBuffer);
             }
@@ -641,17 +667,12 @@ int main()
 
                 SimplePushConstantData push{};
                 push.modelMatrix = transform.mat4();
-                vkCmdPushConstants(commandBuffer, pipeline.getPipelineLayout(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(SimplePushConstantData), &push);
 
-                // ★ 모델이 누구냐에 따라 디스크립터 셋(텍스처)을 갈아 끼웁니다!
-                VkDescriptorSet currentSet = (modelComp.model == kedamaModel) ? koroneMainSet : floorMainSet;
-                
-                vkCmdBindDescriptorSets(
-                    commandBuffer, 
-                    VK_PIPELINE_BIND_POINT_GRAPHICS, 
-                    pipeline.getPipelineLayout(), 
-                    0, 1, &currentSet, 0, nullptr
-                );
+                push.roughness = modelComp.roughness;
+                push.metallic = modelComp.metallic;
+
+                vkCmdPushConstants(commandBuffer, pipeline.getPipelineLayout(), VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(SimplePushConstantData), &push);                
+                vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.getPipelineLayout(), 0, 1, &modelComp.mainSet, 0, nullptr);
 
                 modelComp.model->bind(commandBuffer);
                 modelComp.model->draw(commandBuffer);

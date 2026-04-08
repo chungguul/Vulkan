@@ -24,6 +24,13 @@ struct TransformComponent {
 //렌더링할 3D 모델 정보를 담는 부품
 struct ModelComponent {
     std::shared_ptr<EngineModel> model;
+
+    float roughness{0.8f};
+    float metallic{0.0f};
+
+    VkDescriptorSet mainSet;
+    VkDescriptorSet reflectionSet;
+    VkDescriptorSet refractionSet;
 };
 
 //(나중에 추가될 부품들: PhysicsComponent, WaterComponent 등...)
@@ -39,4 +46,9 @@ struct RigidBodyComponent {
 //래그돌 정보 담기
 struct RagdollComponent {
     uint32_t ragdollID; // Jolt 내부의 래그돌 배열 인덱스
+};
+
+struct PointLightComponent {
+    glm::vec3 color{1.0f, 1.0f, 1.0f}; // 빛의 색상
+    float intensity{10.0f};            // 빛의 밝기 (PBR에서는 수백~수천 단위도 씁니다)
 };
