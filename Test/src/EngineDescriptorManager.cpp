@@ -1,50 +1,22 @@
 #include "EngineDescriptorManager.hpp"
 #include <stdexcept>
 
+// ==========================================================
+// EngineDescriptorManager 핵심 로직
+// ==========================================================
 EngineDescriptorManager::EngineDescriptorManager(EngineDevice& device) : engineDevice{device} {
-    // 1번 바인딩: UBO
-    VkDescriptorSetLayoutBinding uboLayoutBinding{};
-    uboLayoutBinding.binding = 0;
-    uboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    uboLayoutBinding.descriptorCount = 1;
-    uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-
-    // 2번 바인딩: 텍스처 (코로네 털가죽 or 바닥 나무)
-    VkDescriptorSetLayoutBinding samplerLayoutBinding{};
-    samplerLayoutBinding.binding = 1;
-    samplerLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    samplerLayoutBinding.descriptorCount = 1;
-    samplerLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-
-    // ★ 3번 바인딩: 그림자 맵 (Shadow Map)
-    VkDescriptorSetLayoutBinding shadowLayoutBinding{};
-    shadowLayoutBinding.binding = 2;
-    shadowLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    shadowLayoutBinding.descriptorCount = 1;
-    shadowLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-
-    std::vector<VkDescriptorSetLayoutBinding> bindings = {uboLayoutBinding, samplerLayoutBinding, shadowLayoutBinding};
-
-    VkDescriptorSetLayoutCreateInfo layoutInfo{};
-    layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
-    layoutInfo.pBindings = bindings.data();
-
-    if (vkCreateDescriptorSetLayout(engineDevice.getDevice(), &layoutInfo, nullptr, &globalSetLayout) != VK_SUCCESS) {
-        throw std::runtime_error("실패: 디스크립터 세트 레이아웃 생성 오류!");
-    }
-
-    // ★ 풀 공간 늘리기 (최대 50개의 엔티티 수용 가능)
+    // 풀(Pool)을 아주 넉넉하게 생성해 둡니다. (1000개)
     std::vector<VkDescriptorPoolSize> poolSizes{
-        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 50},
-        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 100} // 텍스처용 + 그림자용
+        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000},
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000}
     };
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
     poolInfo.pPoolSizes = poolSizes.data();
-    poolInfo.maxSets = 50; 
+    poolInfo.maxSets = 1000;
+    poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
 
     if (vkCreateDescriptorPool(engineDevice.getDevice(), &poolInfo, nullptr, &descriptorPool) != VK_SUCCESS) {
         throw std::runtime_error("실패: 디스크립터 풀 생성 오류!");
@@ -52,51 +24,107 @@ EngineDescriptorManager::EngineDescriptorManager(EngineDevice& device) : engineD
 }
 
 EngineDescriptorManager::~EngineDescriptorManager() {
+    // 캐싱해둔 레이아웃들 일괄 파괴
+    for (auto layout : layoutCache) {
+        vkDestroyDescriptorSetLayout(engineDevice.getDevice(), layout, nullptr);
+    }
     vkDestroyDescriptorPool(engineDevice.getDevice(), descriptorPool, nullptr);
-    vkDestroyDescriptorSetLayout(engineDevice.getDevice(), globalSetLayout, nullptr);
 }
 
-// ★ 매번 새로운 디스크립터 세트를 할당해서 반환!
-VkDescriptorSet EngineDescriptorManager::allocateDescriptorSet(VkDescriptorBufferInfo bufferInfo, VkDescriptorImageInfo imageInfo, VkDescriptorImageInfo shadowImageInfo) {
-    VkDescriptorSet set;
-    VkDescriptorSetAllocateInfo allocSetInfo{};
-    allocSetInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    allocSetInfo.descriptorPool = descriptorPool;
-    allocSetInfo.descriptorSetCount = 1;
-    allocSetInfo.pSetLayouts = &globalSetLayout;
+VkDescriptorSetLayout EngineDescriptorManager::createDescriptorSetLayout(const std::vector<VkDescriptorSetLayoutBinding>& bindings) {
+    VkDescriptorSetLayoutCreateInfo layoutInfo{};
+    layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
+    layoutInfo.pBindings = bindings.data();
 
-    if (vkAllocateDescriptorSets(engineDevice.getDevice(), &allocSetInfo, &set) != VK_SUCCESS) {
-        throw std::runtime_error("실패: 디스크립터 세트 할당 오류!");
+    VkDescriptorSetLayout layout;
+    if (vkCreateDescriptorSetLayout(engineDevice.getDevice(), &layoutInfo, nullptr, &layout) != VK_SUCCESS) {
+        throw std::runtime_error("실패: 디스크립터 레이아웃 생성 오류!");
+    }
+    
+    layoutCache.push_back(layout); // 삭제를 위해 보관
+    return layout;
+}
+
+bool EngineDescriptorManager::allocateDescriptorSet(VkDescriptorSetLayout layout, VkDescriptorSet& descriptorSet) {
+    VkDescriptorSetAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    allocInfo.descriptorPool = descriptorPool;
+    allocInfo.pSetLayouts = &layout;
+    allocInfo.descriptorSetCount = 1;
+
+    if (vkAllocateDescriptorSets(engineDevice.getDevice(), &allocInfo, &descriptorSet) != VK_SUCCESS) {
+        return false;
+    }
+    return true;
+}
+
+// ==========================================================
+// Builder 기능 구현 (레고 조립)
+// ==========================================================
+EngineDescriptorManager::Builder::Builder(EngineDescriptorManager& manager) : manager{manager} {}
+
+EngineDescriptorManager::Builder& EngineDescriptorManager::Builder::bindBuffer(
+    uint32_t binding, VkDescriptorType type, VkShaderStageFlags stageFlags, VkDescriptorBufferInfo* bufferInfo) {
+    
+    VkDescriptorSetLayoutBinding layoutBinding{};
+    layoutBinding.binding = binding;
+    layoutBinding.descriptorType = type;
+    layoutBinding.descriptorCount = 1;
+    layoutBinding.stageFlags = stageFlags;
+    bindings.push_back(layoutBinding);
+
+    VkWriteDescriptorSet write{};
+    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write.dstBinding = binding;
+    write.descriptorType = type;
+    write.descriptorCount = 1;
+    write.pBufferInfo = bufferInfo;
+    writes.push_back(write);
+
+    return *this; // 메서드 체이닝을 위해 자신을 반환
+}
+
+EngineDescriptorManager::Builder& EngineDescriptorManager::Builder::bindImage(
+    uint32_t binding, VkDescriptorType type, VkShaderStageFlags stageFlags, VkDescriptorImageInfo* imageInfo) {
+    
+    VkDescriptorSetLayoutBinding layoutBinding{};
+    layoutBinding.binding = binding;
+    layoutBinding.descriptorType = type;
+    layoutBinding.descriptorCount = 1;
+    layoutBinding.stageFlags = stageFlags;
+    bindings.push_back(layoutBinding);
+
+    VkWriteDescriptorSet write{};
+    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write.dstBinding = binding;
+    write.descriptorType = type;
+    write.descriptorCount = 1;
+    write.pImageInfo = imageInfo;
+    writes.push_back(write);
+
+    return *this;
+}
+
+bool EngineDescriptorManager::Builder::build(VkDescriptorSet& set, VkDescriptorSetLayout& layout) {
+    // 1. 등록된 바인딩 정보들로 레이아웃을 즉석에서 생성합니다.
+    layout = manager.createDescriptorSetLayout(bindings);
+
+    // 2. 생성된 레이아웃으로 세트를 할당받습니다.
+    if (!manager.allocateDescriptorSet(layout, set)) {
+        return false;
     }
 
-    std::vector<VkWriteDescriptorSet> descriptorWrites(3);
+    // 3. 할당된 세트(dstSet)를 Write 정보에 연결하고 GPU에 업데이트(전송)합니다.
+    for (auto& write : writes) {
+        write.dstSet = set;
+    }
+    vkUpdateDescriptorSets(manager.getEngineDevice().getDevice(), static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
 
-    descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    descriptorWrites[0].dstSet = set;
-    descriptorWrites[0].dstBinding = 0;
-    descriptorWrites[0].dstArrayElement = 0;
-    descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    descriptorWrites[0].descriptorCount = 1;
-    descriptorWrites[0].pBufferInfo = &bufferInfo;
+    return true;
+}
 
-    descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    descriptorWrites[1].dstSet = set;
-    descriptorWrites[1].dstBinding = 1; 
-    descriptorWrites[1].dstArrayElement = 0;
-    descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    descriptorWrites[1].descriptorCount = 1;
-    descriptorWrites[1].pImageInfo = &imageInfo;
-
-    // ★ 그림자 맵 연결!
-    descriptorWrites[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    descriptorWrites[2].dstSet = set;
-    descriptorWrites[2].dstBinding = 2; 
-    descriptorWrites[2].dstArrayElement = 0;
-    descriptorWrites[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    descriptorWrites[2].descriptorCount = 1;
-    descriptorWrites[2].pImageInfo = &shadowImageInfo;
-
-    vkUpdateDescriptorSets(engineDevice.getDevice(), static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
-
-    return set;
+bool EngineDescriptorManager::Builder::build(VkDescriptorSet& set) {
+    VkDescriptorSetLayout dummyLayout;
+    return build(set, dummyLayout);
 }

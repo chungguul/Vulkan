@@ -83,7 +83,11 @@ int main()
         // 텍스처 세팅
         std::cout << "텍스처 로딩 중..." << std::endl;
         EngineTexture myTexture{device, "../textures/Korone_Map.png"};
-        EngineTexture woodTexture{device, "../textures/wood1.jpg"};
+        EngineTexture woodTexture{device, "../textures/sandy_gravel_02_diff_2k.jpg"};
+
+        //물 관련 dU/dV, normal map 로드
+        EngineTexture dudvTexture{device, "../textures/waterDUDV.png"};
+        EngineTexture normalMapTexture{device, "../textures/waterNormal.jpg"};
 
         VkDescriptorImageInfo imageInfo{};
         imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -110,6 +114,22 @@ int main()
         // ★ 2. 디스크립터 매니저 생성 및 세팅 (두 줄 컷!)
         EngineDescriptorManager descriptorManager{device};
 
+        std::vector<VkDescriptorSetLayoutBinding> globalBindings = {
+            {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+            {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+            {2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}
+        };
+        VkDescriptorSetLayout globalSetLayout = descriptorManager.createDescriptorSetLayout(globalBindings);
+
+        std::vector<VkDescriptorSetLayoutBinding> waterBindings = {
+            {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+            {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}, // 반사
+            {2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}, // 굴절
+            {3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}, // DuDv
+            {4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}  // Normal
+        };
+        VkDescriptorSetLayout waterSetLayout = descriptorManager.createDescriptorSetLayout(waterBindings);
+
         VkPushConstantRange pushConstantRange{};
         pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
         pushConstantRange.offset = 0;
@@ -123,7 +143,7 @@ int main()
         //pipelineConfig.rasterizationInfo.cullMode = VK_CULL_MODE_NONE;
 
         pipelineConfig.renderPass = swapChain.getRenderPass();
-        pipelineConfig.descriptorSetLayouts = {descriptorManager.getGlobalSetLayout()};
+        pipelineConfig.descriptorSetLayouts = {globalSetLayout};
         pipelineConfig.pushConstantRanges = {pushConstantRange};
 
         EnginePipeline pipeline{
@@ -136,7 +156,7 @@ int main()
 
         EnginePipeline::defaultPipelineConfigInfo(waterPipelineConfig, WIDTH, HEIGHT);
         waterPipelineConfig.renderPass = swapChain.getRenderPass();
-        waterPipelineConfig.descriptorSetLayouts = {descriptorManager.getGlobalSetLayout()};
+        waterPipelineConfig.descriptorSetLayouts = {waterSetLayout};
         waterPipelineConfig.pushConstantRanges = {pushConstantRange};
         // 물은 앞뒤를 다 봐야 하므로 Culling 끔, 투명도를 위해 Blending 켬
         waterPipelineConfig.rasterizationInfo.cullMode = VK_CULL_MODE_NONE; 
@@ -229,7 +249,7 @@ int main()
             WIDTH,
             HEIGHT,
             skyboxCubemap,
-            descriptorManager.getGlobalSetLayout(),
+            globalSetLayout,
             uboBufferArray,
             sizeof(GlobalUbo)
         };
@@ -268,18 +288,81 @@ int main()
         refractionInfo.imageView = engineWater.getRefractionImageView();
         refractionInfo.sampler = engineWater.getSampler();
 
-        // ★ 대망의 세트 분리! 이제 공장에서 2개의 세트를 독립적으로 찍어냅니다.
-        VkDescriptorSet koroneMainSet = descriptorManager.allocateDescriptorSet(uboBufferMain.descriptorInfo(), koroneImageInfo, shadowImageInfo);
-        VkDescriptorSet floorMainSet = descriptorManager.allocateDescriptorSet(uboBufferMain.descriptorInfo(), floorImageInfo, shadowImageInfo);
+        VkDescriptorImageInfo dudvInfo{};
+        dudvInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        dudvInfo.imageView = dudvTexture.getImageView();
+        dudvInfo.sampler = dudvTexture.getSampler();
 
-        VkDescriptorSet koroneReflectionSet = descriptorManager.allocateDescriptorSet(uboBufferReflection.descriptorInfo(), koroneImageInfo, shadowImageInfo);
-        VkDescriptorSet floorReflectionSet = descriptorManager.allocateDescriptorSet(uboBufferReflection.descriptorInfo(), floorImageInfo, shadowImageInfo);
+        VkDescriptorImageInfo normalInfo{};
+        normalInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        normalInfo.imageView = normalMapTexture.getImageView();
+        normalInfo.sampler = normalMapTexture.getSampler();
 
-        VkDescriptorSet koroneRefractionSet = descriptorManager.allocateDescriptorSet(uboBufferRefraction.descriptorInfo(), koroneImageInfo, shadowImageInfo);
-        VkDescriptorSet floorRefractionSet = descriptorManager.allocateDescriptorSet(uboBufferRefraction.descriptorInfo(), floorImageInfo, shadowImageInfo);        // 2. 그림자 전용 파이프라인 설정
+        // ==========================================================
+        // ★ [수정 2] UBO 버퍼 정보를 포인터(&)로 넘기기 위해 미리 변수로 빼둡니다.
+        // ==========================================================
+        VkDescriptorBufferInfo uboInfoMain = uboBufferMain.descriptorInfo();
+        VkDescriptorBufferInfo uboInfoReflection = uboBufferReflection.descriptorInfo();
+        VkDescriptorBufferInfo uboInfoRefraction = uboBufferRefraction.descriptorInfo();
+
+        // ==========================================================
+        // ★ 대망의 세트 분리! Builder 패턴으로 레고 조립하듯 생성합니다.
+        // ==========================================================
         
-        VkDescriptorSet waterSet = descriptorManager.allocateDescriptorSet(uboBufferMain.descriptorInfo(), reflectionInfo, refractionInfo);
-        
+        // [메인 화면용 세트]
+        VkDescriptorSet koroneMainSet;
+        EngineDescriptorManager::Builder(descriptorManager)
+            .bindBuffer(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &uboInfoMain)
+            .bindImage(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &koroneImageInfo)
+            .bindImage(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &shadowImageInfo)
+            .build(koroneMainSet);
+
+        VkDescriptorSet floorMainSet;
+        EngineDescriptorManager::Builder(descriptorManager)
+            .bindBuffer(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &uboInfoMain)
+            .bindImage(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &floorImageInfo)
+            .bindImage(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &shadowImageInfo)
+            .build(floorMainSet);
+
+        // [반사 화면용 세트 (거울)]
+        VkDescriptorSet koroneReflectionSet;
+        EngineDescriptorManager::Builder(descriptorManager)
+            .bindBuffer(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &uboInfoReflection)
+            .bindImage(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &koroneImageInfo)
+            .bindImage(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &shadowImageInfo)
+            .build(koroneReflectionSet);
+
+        VkDescriptorSet floorReflectionSet;
+        EngineDescriptorManager::Builder(descriptorManager)
+            .bindBuffer(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &uboInfoReflection)
+            .bindImage(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &floorImageInfo)
+            .bindImage(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &shadowImageInfo)
+            .build(floorReflectionSet);
+
+        // [굴절 화면용 세트 (유리)]
+        VkDescriptorSet koroneRefractionSet;
+        EngineDescriptorManager::Builder(descriptorManager)
+            .bindBuffer(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &uboInfoRefraction)
+            .bindImage(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &koroneImageInfo)
+            .bindImage(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &shadowImageInfo)
+            .build(koroneRefractionSet);
+
+        VkDescriptorSet floorRefractionSet;
+        EngineDescriptorManager::Builder(descriptorManager)
+            .bindBuffer(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &uboInfoRefraction)
+            .bindImage(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &floorImageInfo)
+            .bindImage(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &shadowImageInfo)
+            .build(floorRefractionSet);
+
+        // 물 전용 세트
+        VkDescriptorSet waterSet;
+        EngineDescriptorManager::Builder(descriptorManager)
+            .bindBuffer(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &uboInfoMain)
+            .bindImage(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &reflectionInfo)
+            .bindImage(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &refractionInfo)
+            .bindImage(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &dudvInfo)   // ★ 추가
+            .bindImage(4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &normalInfo) // ★ 추가
+            .build(waterSet);
         PipelineConfigInfo shadowPipelineConfig{};
         // 해상도는 스왑체인(화면) 크기가 아니라 그림자 도화지의 크기를 따라갑니다!
         EnginePipeline::defaultPipelineConfigInfo(shadowPipelineConfig, engineShadow.getWidth(), engineShadow.getHeight());
@@ -293,7 +376,7 @@ int main()
         // 메인 화면이 아닌 그림자 도화지의 렌더패스를 연결!
         shadowPipelineConfig.renderPass = engineShadow.getRenderPass(); 
         
-        shadowPipelineConfig.descriptorSetLayouts = {descriptorManager.getGlobalSetLayout()};
+        shadowPipelineConfig.descriptorSetLayouts = {globalSetLayout};
         shadowPipelineConfig.pushConstantRanges = {pushConstantRange};
 
         // 3. 그림자 파이프라인 생성
@@ -500,6 +583,8 @@ int main()
                 modelComp.model->bind(commandBuffer);
                 modelComp.model->draw(commandBuffer);
             }
+            skyboxRenderer.render(commandBuffer, 0);
+
             vkCmdEndRenderPass(commandBuffer);
 
             // ==========================================================
