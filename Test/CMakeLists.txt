@@ -27,7 +27,8 @@ if(WIN32)
     find_package(glm CONFIG REQUIRED)
     find_package(assimp CONFIG REQUIRED)
     find_package(Jolt CONFIG REQUIRED)
-elseif(APPLE)
+    find_package(nlohmann_json CONFIG REQUIRED)
+elseif(APPLE) # 추후 패키지 설치 및 경로 수정 필요
     find_package(glfw3 REQUIRED)
     find_package(glm REQUIRED)
     find_package(assimp REQUIRED)
@@ -99,4 +100,5 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     assimp::assimp
     EnTT::EnTT 
     Jolt::Jolt
+    nlohmann_json::nlohmann_json
 )

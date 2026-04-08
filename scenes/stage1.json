@@ -1,0 +1,46 @@
+{
+  "scene_name": "AI_Generated_TechDemo",
+  "required_assets": {
+    "models": [
+      { "name": "FloorModel", "path": "Primitive:Plane" }, 
+      { "name": "Kedama", "path": "../models/Kedama_scaled_v3.fbx" },
+      { "name": "MyCube", "path": "Primitive:Cube" },
+      { "name": "MySphere", "path": "Primitive:Sphere" }
+    ],
+    "textures": [
+      { "name": "Wood", "path": "../textures/sandy_gravel_02_diff_2k.jpg" },
+      { "name": "KoroneMap", "path": "../textures/Korone_Map.png" }
+    ]
+  },
+  "entities": [
+    {
+      "tag": "Floor",
+      "model": "FloorModel",
+      "transform": { "position": [0.0, 0.0, 0.0], "scale": [1.0, 1.0, 1.0] }
+    },
+    {
+      "tag": "Player",
+      "model": "Kedama",
+      "transform": { "position": [0.0, 5.0, 0.0], "scale": [0.01, 0.01, 0.01] }
+    },
+    {
+      "tag": "Prop",
+      "model": "MyCube",
+      "transform": { "position": [5.0, 2.0, 3.0], "scale": [2.0, 2.0, 2.0] }
+    },
+    {
+      "tag": "Prop",
+      "model": "MySphere",
+      "transform": { "position": [-4.0, 4.0, -2.0], "scale": [3.0, 3.0, 3.0] }
+    },
+    {
+      "tag": "Camera",
+      "transform": { "position": [0.0, 2.0, -8.0], "scale": [1.0, 1.0, 1.0] }
+    },
+    {
+      "tag": "Light",
+      "transform": { "position": [5.0, 5.0, 5.0], "scale": [1.0, 1.0, 1.0] },
+      "light": { "color": [1.0, 0.9, 0.8], "intensity": 150.0 }
+    }
+  ]
+}

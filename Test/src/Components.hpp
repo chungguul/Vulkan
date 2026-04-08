@@ -1,8 +1,17 @@
 #pragma once
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-#include <memory>
+
 #include "EngineModel.hpp"
+
+#include <memory>
+#include <cstdint>
+
+// 엔티티 태그
+struct PlayerTag {};
+struct FloorTag {};
+struct CameraTag {};
+struct PropTag {};
 
 //위치, 회전, 크기 정보를 담는 부품
 struct TransformComponent {
@@ -35,7 +44,7 @@ struct ModelComponent {
 
 //(나중에 추가될 부품들: PhysicsComponent, WaterComponent 등...)
 
-#include <cstdint>
+
 
 //물리 엔진의 강체(RigidBody) 정보를 담는 부품
 struct RigidBodyComponent {

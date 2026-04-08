@@ -1,0 +1,598 @@
+#include "GameApp.hpp"
+#include <iostream>
+#include <chrono>
+#include <fstream>
+#include <cmath>
+
+
+using json = nlohmann::json;
+
+// ==========================================================
+// 1. 엔진 초기화 (순서가 매우 중요합니다!)
+// ==========================================================
+GameApp::GameApp() {
+    std::cout << "엔진 코어 초기화 중..." << std::endl;
+    
+    // 1-1. 물리 엔진 초기화
+    physicsEngine.init();
+    physicsEngine.createFloor();
+
+    // 1-2. 커맨드 버퍼 할당
+    VkCommandBufferAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.commandPool = device.getCommandPool();
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocInfo.commandBufferCount = 1;
+    vkAllocateCommandBuffers(device.getDevice(), &allocInfo, &commandBuffer);
+
+    // 1-3. UBO 버퍼 생성 및 매핑
+    uboBufferMain = std::make_unique<EngineBuffer>(device, sizeof(GlobalUbo), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    uboBufferMain->map();
+    uboBufferReflection = std::make_unique<EngineBuffer>(device, sizeof(GlobalUbo), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    uboBufferReflection->map();
+    uboBufferRefraction = std::make_unique<EngineBuffer>(device, sizeof(GlobalUbo), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    uboBufferRefraction->map();
+
+    // 1-4. 텍스처 및 스카이박스 로딩
+    std::cout << "코어 에셋 로딩 중..." << std::endl;
+    loadTexture("WaterDUDV", "../textures/waterDUDV.png");
+    loadTexture("WaterNormal", "../textures/waterNormal.jpg");
+
+    EngineTexture hdrSkyboxTexture{device};
+    hdrSkyboxTexture.loadHDR("../textures/sunflowers_puresky_4k.hdr");
+    skyboxCubemap = std::make_unique<EngineCubemap>(device, hdrSkyboxTexture, 4096);
+
+    engineWater = std::make_unique<EngineWater>(device, WIDTH, HEIGHT);
+    engineShadow = std::make_unique<EngineShadow>(device, 2048, 2048);
+    descriptorManager = std::make_unique<EngineDescriptorManager>(device);
+}
+
+GameApp::~GameApp() {
+    vkDeviceWaitIdle(device.getDevice());
+    std::cout << "엔진 정상 종료 및 메모리 정리 완료." << std::endl;
+}
+// ==========================================================
+// 3. 디스크립터 조립 & 파이프라인 생성
+// ==========================================================
+void GameApp::setupDescriptorsAndPipelines() {
+    std::cout << "파이프라인 및 디스크립터 세팅 중..." << std::endl;
+
+    // 레이아웃 생성
+    std::vector<VkDescriptorSetLayoutBinding> globalBindings = {
+        {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+        {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+        {2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+        {3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}
+    };
+    globalSetLayout = descriptorManager->createDescriptorSetLayout(globalBindings);
+
+    std::vector<VkDescriptorSetLayoutBinding> waterBindings = {
+        {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+        {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}, 
+        {2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}, 
+        {3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}, 
+        {4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}  
+    };
+    waterSetLayout = descriptorManager->createDescriptorSetLayout(waterBindings);
+
+    // 이미지 정보 묶기
+    auto makeImgInfo = [](VkImageLayout layout, VkImageView view, VkSampler sampler) {
+        VkDescriptorImageInfo info{}; info.imageLayout = layout; info.imageView = view; info.sampler = sampler; return info;
+    };
+    auto koroneImageInfo = makeImgInfo(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, textures["KoroneMap"]->getImageView(), textures["KoroneMap"]->getSampler());
+    auto floorImageInfo  = makeImgInfo(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, textures["Wood"]->getImageView(), textures["Wood"]->getSampler());
+    
+    auto shadowImageInfo = makeImgInfo(VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, engineShadow->getImageView(), engineShadow->getSampler());
+    auto skyboxInfo      = makeImgInfo(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, skyboxCubemap->getImageView(), skyboxCubemap->getSampler());
+    auto reflectionInfo  = makeImgInfo(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, engineWater->getReflectionImageView(), engineWater->getSampler());
+    auto refractionInfo  = makeImgInfo(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, engineWater->getRefractionImageView(), engineWater->getSampler());
+    
+    // 코어 에셋 창고에서 꺼내기
+    auto dudvInfo   = makeImgInfo(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, textures["WaterDUDV"]->getImageView(), textures["WaterDUDV"]->getSampler());
+    auto normalInfo = makeImgInfo(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, textures["WaterNormal"]->getImageView(), textures["WaterNormal"]->getSampler());
+    
+    // 버퍼 정보
+    auto uboInfoMain = uboBufferMain->descriptorInfo();
+    auto uboInfoReflection = uboBufferReflection->descriptorInfo();
+    auto uboInfoRefraction = uboBufferRefraction->descriptorInfo();
+
+    // ECS에 저장된 모델 컴포넌트 꺼내오기
+    auto playerView = registry.view<PlayerTag, ModelComponent>();
+    auto &kComp = registry.get<ModelComponent>(playerView.front());
+
+    auto floorView = registry.view<FloorTag, ModelComponent>();
+    auto &fComp = registry.get<ModelComponent>(floorView.front());
+
+    // 디스크립터 세트 조립
+    auto propView = registry.view<PropTag, ModelComponent>();
+    for (auto entity : propView) {
+        auto &pComp = propView.get<ModelComponent>(entity);
+        
+        EngineDescriptorManager::Builder(*descriptorManager)
+            .bindBuffer(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &uboInfoMain)
+            .bindImage(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &floorImageInfo) // 임시로 나무 텍스처 사용
+            .bindImage(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &shadowImageInfo)
+            .bindImage(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &skyboxInfo)
+            .build(pComp.mainSet);
+
+        EngineDescriptorManager::Builder(*descriptorManager)
+            .bindBuffer(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &uboInfoReflection)
+            .bindImage(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &floorImageInfo)
+            .bindImage(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &shadowImageInfo)
+            .build(pComp.reflectionSet);
+
+        EngineDescriptorManager::Builder(*descriptorManager)
+            .bindBuffer(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &uboInfoRefraction)
+            .bindImage(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &floorImageInfo)
+            .bindImage(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &shadowImageInfo)
+            .build(pComp.refractionSet);
+    }
+
+
+    EngineDescriptorManager::Builder(*descriptorManager)
+        .bindBuffer(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &uboInfoMain)
+        .bindImage(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &koroneImageInfo)
+        .bindImage(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &shadowImageInfo)
+        .bindImage(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &skyboxInfo)
+        .build(kComp.mainSet);
+
+    EngineDescriptorManager::Builder(*descriptorManager)
+        .bindBuffer(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &uboInfoReflection)
+        .bindImage(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &koroneImageInfo)
+        .bindImage(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &shadowImageInfo)
+        .build(kComp.reflectionSet);
+
+    EngineDescriptorManager::Builder(*descriptorManager)
+        .bindBuffer(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &uboInfoRefraction)
+        .bindImage(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &koroneImageInfo)
+        .bindImage(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &shadowImageInfo)
+        .build(kComp.refractionSet);
+
+    EngineDescriptorManager::Builder(*descriptorManager)
+        .bindBuffer(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &uboInfoMain)
+        .bindImage(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &floorImageInfo)
+        .bindImage(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &shadowImageInfo)
+        .bindImage(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &skyboxInfo)
+        .build(fComp.mainSet);
+
+    EngineDescriptorManager::Builder(*descriptorManager)
+        .bindBuffer(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &uboInfoReflection)
+        .bindImage(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &floorImageInfo)
+        .bindImage(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &shadowImageInfo)
+        .build(fComp.reflectionSet);
+
+    EngineDescriptorManager::Builder(*descriptorManager)
+        .bindBuffer(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &uboInfoRefraction)
+        .bindImage(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &floorImageInfo)
+        .bindImage(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &shadowImageInfo)
+        .build(fComp.refractionSet);
+
+    EngineDescriptorManager::Builder(*descriptorManager)
+        .bindBuffer(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &uboInfoMain)
+        .bindImage(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &reflectionInfo)
+        .bindImage(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &refractionInfo)
+        .bindImage(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &dudvInfo)   
+        .bindImage(4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &normalInfo) 
+        .build(waterSet);
+
+    // 파이프라인 생성!
+    simpleRenderSystem = std::make_unique<SimpleRenderSystem>(device, swapChain.getRenderPass(), globalSetLayout);
+
+    VkPushConstantRange pushConstantRange{};
+    pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    pushConstantRange.size = sizeof(SimplePushConstantData);
+
+    PipelineConfigInfo shadowPipelineConfig{};
+    EnginePipeline::defaultPipelineConfigInfo(shadowPipelineConfig, engineShadow->getWidth(), engineShadow->getHeight());
+    shadowPipelineConfig.colorBlendInfo.attachmentCount = 0;
+    shadowPipelineConfig.colorBlendInfo.pAttachments = nullptr;
+    shadowPipelineConfig.rasterizationInfo.cullMode = VK_CULL_MODE_FRONT_BIT;
+    shadowPipelineConfig.renderPass = engineShadow->getRenderPass(); 
+    shadowPipelineConfig.descriptorSetLayouts = {globalSetLayout};
+    shadowPipelineConfig.pushConstantRanges = {pushConstantRange};
+    shadowPipeline = std::make_unique<EnginePipeline>(device, "../Test/shaders/shadow.vert.spv", "../Test/shaders/shadow.frag.spv", shadowPipelineConfig);
+
+    PipelineConfigInfo waterPipelineConfig{};
+    EnginePipeline::defaultPipelineConfigInfo(waterPipelineConfig, WIDTH, HEIGHT);
+    waterPipelineConfig.renderPass = swapChain.getRenderPass();
+    waterPipelineConfig.descriptorSetLayouts = {waterSetLayout};
+    waterPipelineConfig.pushConstantRanges = {pushConstantRange};
+    waterPipelineConfig.rasterizationInfo.cullMode = VK_CULL_MODE_NONE; 
+    waterPipeline = std::make_unique<EnginePipeline>(device, "../Test/shaders/water.vert.spv", "../Test/shaders/water.frag.spv", waterPipelineConfig);
+
+    std::vector<VkBuffer> uboBufferArray = {uboBufferMain->getBuffer()};
+    engineSkybox = std::make_unique<EngineSkybox>(device, swapChain.getRenderPass(), WIDTH, HEIGHT, *skyboxCubemap, globalSetLayout, uboBufferArray, sizeof(GlobalUbo));
+}
+
+// ==========================================================
+// 4. 메인 렌더 루프
+// ==========================================================
+void GameApp::run() {
+    std::cout << "엔진 루프 진입 중..." << std::endl;
+    auto currentTime = std::chrono::high_resolution_clock::now();
+    float totalTime = 0.0f;
+
+    while (!window.shouldClose()) {
+        window.pollEvents();
+
+        // [1] 물리 및 로직 업데이트
+        auto newTime = std::chrono::high_resolution_clock::now();
+        float frameTime = std::chrono::duration<float, std::chrono::seconds::period>(newTime - currentTime).count();
+        currentTime = newTime;
+        totalTime += frameTime;
+
+        physicsEngine.update(frameTime);
+
+        auto cameraView = registry.view<CameraTag, TransformComponent>();
+        auto &viewTrans = cameraView.get<TransformComponent>(cameraView.front());
+
+        auto playerView = registry.view<PlayerTag, TransformComponent>();
+        auto &koroneTrans = playerView.get<TransformComponent>(playerView.front());
+        
+        cameraController.updateFreeCamera(window.getGLFWwindow(), frameTime, viewTrans);
+        
+        float yaw = viewTrans.rotation.y;
+        float pitch = viewTrans.rotation.x;
+        glm::vec3 lookDirection{-sin(yaw) * cos(pitch), sin(pitch), -cos(yaw) * cos(pitch)};
+        camera.setViewTarget(viewTrans.translation, viewTrans.translation + lookDirection);
+        camera.setPerspectiveProjection(glm::radians(50.f), swapChain.getWidth() / (float)swapChain.getHeight(), 0.1f, 1000.f);
+
+        animator->playAnimation(idleAnimation.get());
+        animator->updateAnimation(frameTime);
+
+        // [2] UBO 갱신 (뼈대 연산 포함)
+        GlobalUbo uboMain{};
+        uboMain.view = camera.getView();
+        uboMain.proj = camera.getProjection();
+        uboMain.proj[1][1] *= -1.0f;
+        uboMain.projectionView = uboMain.proj * uboMain.view;
+        uboMain.time = totalTime;
+        uboMain.lightDirection = glm::normalize(glm::vec3(0.5f, -3.0f, 1.0f));
+        uboMain.lightSpaceMatrix = glm::ortho(-10.0f, 10.0f, -10.0f, 10.0f, 1.0f, 50.0f) * glm::lookAt(-uboMain.lightDirection * 20.0f, glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+        uboMain.lightSpaceMatrix[1][1] *= -1.0f;
+
+        auto ragdollView = registry.view<TransformComponent, RagdollComponent, ModelComponent>();
+        for (auto entity : ragdollView) {
+            auto &transform = ragdollView.get<TransformComponent>(entity);
+            auto &ragdoll = ragdollView.get<RagdollComponent>(entity);
+            auto &modelComp = ragdollView.get<ModelComponent>(entity);
+            physicsEngine.syncRagdollBones(ragdoll.ragdollID, modelComp.model->getBoneInfoMap(), uboMain.finalBonesMatrices, transform.translation, transform.rotation);
+        }
+
+        int lightCount = 0;
+        auto lightView = registry.view<TransformComponent, PointLightComponent>();
+        for (auto entity : lightView) {
+            if (lightCount >= MAX_POINT_LIGHTS) break;
+            auto &transform = lightView.get<TransformComponent>(entity);
+            auto &pointLight = lightView.get<PointLightComponent>(entity);
+            uboMain.pointLights[lightCount].position = glm::vec4(transform.translation, pointLight.intensity);
+            uboMain.pointLights[lightCount].color = glm::vec4(pointLight.color, 1.0f); 
+            lightCount++;
+        }
+        uboMain.numPointLights = lightCount;
+
+        float waterHeight = 0.5f;
+        GlobalUbo uboRefraction = uboMain;
+        uboRefraction.clipPlane = glm::vec4(0.0f, -1.0f, 0.0f, waterHeight + 0.1f);
+
+        GlobalUbo uboReflection = uboMain;
+        glm::vec3 refViewPos = viewTrans.translation;
+        refViewPos.y -= 2.0f * (refViewPos.y - waterHeight); 
+        glm::vec3 refTargetPos = koroneTrans.translation;
+        refTargetPos.y -= 2.0f * (refTargetPos.y - waterHeight); 
+        
+        EngineCamera reflectionCamera{};
+        reflectionCamera.setViewTarget(refViewPos, refTargetPos);
+        uboReflection.view = reflectionCamera.getView();
+        uboReflection.projectionView = uboReflection.proj * uboReflection.view;
+        uboReflection.clipPlane = glm::vec4(0.0f, 1.0f, 0.0f, -waterHeight + 0.1f);
+
+        uboBufferMain->writeToBuffer(&uboMain);
+        uboBufferRefraction->writeToBuffer(&uboRefraction);
+        uboBufferReflection->writeToBuffer(&uboReflection);
+
+        // [3] 안전한 렌더링 시작 (동기화)
+        VkFence inFlightFence = swapChain.getInFlightFence();
+        vkWaitForFences(device.getDevice(), 1, &inFlightFence, VK_TRUE, UINT64_MAX);
+        vkResetFences(device.getDevice(), 1, &inFlightFence);
+
+        uint32_t imageIndex;
+        VkSemaphore imageAvailable = swapChain.getImageAvailableSemaphore();
+        vkAcquireNextImageKHR(device.getDevice(), swapChain.getSwapChain(), UINT64_MAX, imageAvailable, VK_NULL_HANDLE, &imageIndex);
+
+        vkResetCommandBuffer(commandBuffer, 0);
+        VkCommandBufferBeginInfo beginInfo{};
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        vkBeginCommandBuffer(commandBuffer, &beginInfo);
+
+        // --- 패스 1: 그림자 ---
+        VkRenderPassBeginInfo shadowPassInfo{};
+        shadowPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        shadowPassInfo.renderPass = engineShadow->getRenderPass();
+        shadowPassInfo.framebuffer = engineShadow->getFramebuffer();
+        shadowPassInfo.renderArea.extent = {engineShadow->getWidth(), engineShadow->getHeight()};
+        VkClearValue depthClear{}; depthClear.depthStencil = {1.0f, 0};
+        shadowPassInfo.clearValueCount = 1; shadowPassInfo.pClearValues = &depthClear;
+
+        vkCmdBeginRenderPass(commandBuffer, &shadowPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPipeline->getPipeline());
+        
+        auto modelView = registry.view<TransformComponent, ModelComponent>();
+        for (auto entity : modelView) {
+            auto &transform = modelView.get<TransformComponent>(entity);
+            auto &modelComp = modelView.get<ModelComponent>(entity);
+            SimplePushConstantData push{}; push.modelMatrix = transform.mat4();
+            vkCmdPushConstants(commandBuffer, shadowPipeline->getPipelineLayout(), VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(SimplePushConstantData), &push);
+            vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPipeline->getPipelineLayout(), 0, 1, &modelComp.mainSet, 0, nullptr);
+            modelComp.model->bind(commandBuffer); modelComp.model->draw(commandBuffer);
+        }
+        vkCmdEndRenderPass(commandBuffer);
+
+        // --- 패스 1.5: 반사 ---
+        VkRenderPassBeginInfo reflectionPassInfo{};
+        reflectionPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        reflectionPassInfo.renderPass = engineWater->getReflectionRenderPass();
+        reflectionPassInfo.framebuffer = engineWater->getReflectionFramebuffer();
+        reflectionPassInfo.renderArea.extent = {engineWater->getWidth(), engineWater->getHeight()};
+        VkClearValue refColor = {{{0.5f, 0.7f, 0.9f, 1.0f}}};
+        std::vector<VkClearValue> refClearValues = {refColor, depthClear};
+        reflectionPassInfo.clearValueCount = static_cast<uint32_t>(refClearValues.size());
+        reflectionPassInfo.pClearValues = refClearValues.data();
+
+        vkCmdBeginRenderPass(commandBuffer, &reflectionPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+        simpleRenderSystem->renderGameObjects(commandBuffer, registry, RenderPassType::REFLECTION);
+        // 하늘도 거울(물)에 비쳐야 하니까 스카이박스도 렌더링!
+        engineSkybox->render(commandBuffer, 0); 
+        
+        vkCmdEndRenderPass(commandBuffer);
+
+        // --- 패스 1.6: 굴절 (Refraction) ---
+        VkRenderPassBeginInfo refractionPassInfo = reflectionPassInfo;
+        refractionPassInfo.renderPass = engineWater->getRefractionRenderPass();
+        refractionPassInfo.framebuffer = engineWater->getRefractionFramebuffer();
+
+        vkCmdBeginRenderPass(commandBuffer, &refractionPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+        
+        // ★ 수정: 굴절 패스로 코로네와 바닥 그리기!
+        simpleRenderSystem->renderGameObjects(commandBuffer, registry, RenderPassType::REFRACTION);
+        
+        vkCmdEndRenderPass(commandBuffer);
+
+        // --- 패스 2: 메인 화면 ---
+        VkRenderPassBeginInfo renderPassInfo{};
+        renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        renderPassInfo.renderPass = swapChain.getRenderPass();
+        renderPassInfo.framebuffer = swapChain.getFrameBuffer(imageIndex);
+        renderPassInfo.renderArea.extent = {(uint32_t)WIDTH, (uint32_t)HEIGHT};
+        VkClearValue clearColor = {{{0.02f, 0.05f, 0.1f, 1.0f}}};
+        std::vector<VkClearValue> clearValues = {clearColor, depthClear};
+        renderPassInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
+        renderPassInfo.pClearValues = clearValues.data();
+        
+        vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+        
+        // 1. 코로네 & 바닥 (SimpleRenderSystem)
+        simpleRenderSystem->renderGameObjects(commandBuffer, registry);
+        // 2. 스카이박스
+        engineSkybox->render(commandBuffer, 0);
+        // 3. 물
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, waterPipeline->getPipeline());
+        SimplePushConstantData waterPush{}; 
+        waterPush.modelMatrix = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, waterHeight, 0.0f));
+        vkCmdPushConstants(commandBuffer, waterPipeline->getPipelineLayout(), VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(SimplePushConstantData), &waterPush);
+        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, waterPipeline->getPipelineLayout(), 0, 1, &waterSet, 0, nullptr);
+        
+        // ★ 수정 5: 하드코딩 변수 대신 창고에서 꺼내서 바인딩합니다.
+        models["FloorModel"]->bind(commandBuffer); 
+        models["FloorModel"]->draw(commandBuffer);
+
+        vkCmdEndRenderPass(commandBuffer);
+        vkEndCommandBuffer(commandBuffer);
+
+        // [4] 화면 출력 제출 (동기화)
+        VkSubmitInfo submitInfo{}; submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        VkSemaphore waitSemaphores[] = {imageAvailable}; VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
+        submitInfo.waitSemaphoreCount = 1; submitInfo.pWaitSemaphores = waitSemaphores; submitInfo.pWaitDstStageMask = waitStages;
+        submitInfo.commandBufferCount = 1; submitInfo.pCommandBuffers = &commandBuffer;
+        VkSemaphore signalSemaphores[] = {swapChain.getRenderFinishedSemaphore()};
+        submitInfo.signalSemaphoreCount = 1; submitInfo.pSignalSemaphores = signalSemaphores;
+
+        vkQueueSubmit(device.getGraphicsQueue(), 1, &submitInfo, inFlightFence);
+
+        VkPresentInfoKHR presentInfo{}; presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+        presentInfo.waitSemaphoreCount = 1; presentInfo.pWaitSemaphores = signalSemaphores;
+        VkSwapchainKHR swapchains[] = {swapChain.getSwapChain()};
+        presentInfo.swapchainCount = 1; presentInfo.pSwapchains = swapchains; presentInfo.pImageIndices = &imageIndex;
+
+        vkQueuePresentKHR(device.getPresentQueue(), &presentInfo);
+    }
+}
+
+void GameApp::loadTexture(const std::string& name, const std::string& filepath) {
+    // 텍스처를 동적 생성해서 창고(Map)에 'name'이라는 이름표를 붙여 보관합니다.
+    textures[name] = std::make_shared<EngineTexture>(device, filepath);
+}
+
+void GameApp::loadModel(const std::string& name, const std::string& filepath) {
+    if (filepath == "Primitive:Plane") {
+        EngineModel::Builder builder{};
+        builder.vertices = {
+            {{-20.0f, 0.0f, -20.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+            {{-20.0f, 0.0f,  20.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 10.0f}},
+            {{ 20.0f, 0.0f,  20.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f, 0.0f}, {10.0f, 10.0f}},
+            {{ 20.0f, 0.0f, -20.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f, 0.0f}, {10.0f, 0.0f}}
+        };
+        builder.indices = {0, 1, 2, 2, 3, 0};
+        models[name] = std::make_shared<EngineModel>(device, builder);
+        return;
+    } 
+    // ★ 1. 큐브 생성기
+    else if (filepath == "Primitive:Cube") {
+        EngineModel::Builder builder{};
+        builder.vertices = {
+            {{-0.5f,-0.5f, 0.5f},{1.f,1.f,1.f},{ 0.f, 0.f, 1.f},{0.f,1.f}}, {{ 0.5f,-0.5f, 0.5f},{1.f,1.f,1.f},{ 0.f, 0.f, 1.f},{1.f,1.f}}, {{ 0.5f, 0.5f, 0.5f},{1.f,1.f,1.f},{ 0.f, 0.f, 1.f},{1.f,0.f}}, {{-0.5f, 0.5f, 0.5f},{1.f,1.f,1.f},{ 0.f, 0.f, 1.f},{0.f,0.f}}, // Front
+            {{-0.5f,-0.5f,-0.5f},{1.f,1.f,1.f},{ 0.f, 0.f,-1.f},{1.f,1.f}}, {{ 0.5f,-0.5f,-0.5f},{1.f,1.f,1.f},{ 0.f, 0.f,-1.f},{0.f,1.f}}, {{ 0.5f, 0.5f,-0.5f},{1.f,1.f,1.f},{ 0.f, 0.f,-1.f},{0.f,0.f}}, {{-0.5f, 0.5f,-0.5f},{1.f,1.f,1.f},{ 0.f, 0.f,-1.f},{1.f,0.f}}, // Back
+            {{-0.5f, 0.5f, 0.5f},{1.f,1.f,1.f},{ 0.f, 1.f, 0.f},{0.f,1.f}}, {{ 0.5f, 0.5f, 0.5f},{1.f,1.f,1.f},{ 0.f, 1.f, 0.f},{1.f,1.f}}, {{ 0.5f, 0.5f,-0.5f},{1.f,1.f,1.f},{ 0.f, 1.f, 0.f},{1.f,0.f}}, {{-0.5f, 0.5f,-0.5f},{1.f,1.f,1.f},{ 0.f, 1.f, 0.f},{0.f,0.f}}, // Top
+            {{-0.5f,-0.5f, 0.5f},{1.f,1.f,1.f},{ 0.f,-1.f, 0.f},{0.f,0.f}}, {{ 0.5f,-0.5f, 0.5f},{1.f,1.f,1.f},{ 0.f,-1.f, 0.f},{1.f,0.f}}, {{ 0.5f,-0.5f,-0.5f},{1.f,1.f,1.f},{ 0.f,-1.f, 0.f},{1.f,1.f}}, {{-0.5f,-0.5f,-0.5f},{1.f,1.f,1.f},{ 0.f,-1.f, 0.f},{0.f,1.f}}, // Bottom
+            {{ 0.5f,-0.5f, 0.5f},{1.f,1.f,1.f},{ 1.f, 0.f, 0.f},{0.f,1.f}}, {{ 0.5f,-0.5f,-0.5f},{1.f,1.f,1.f},{ 1.f, 0.f, 0.f},{1.f,1.f}}, {{ 0.5f, 0.5f,-0.5f},{1.f,1.f,1.f},{ 1.f, 0.f, 0.f},{1.f,0.f}}, {{ 0.5f, 0.5f, 0.5f},{1.f,1.f,1.f},{ 1.f, 0.f, 0.f},{0.f,0.f}}, // Right
+            {{-0.5f,-0.5f, 0.5f},{1.f,1.f,1.f},{-1.f, 0.f, 0.f},{1.f,1.f}}, {{-0.5f,-0.5f,-0.5f},{1.f,1.f,1.f},{-1.f, 0.f, 0.f},{0.f,1.f}}, {{-0.5f, 0.5f,-0.5f},{1.f,1.f,1.f},{-1.f, 0.f, 0.f},{0.f,0.f}}, {{-0.5f, 0.5f, 0.5f},{1.f,1.f,1.f},{-1.f, 0.f, 0.f},{1.f,0.f}}  // Left
+        };
+        builder.indices = { 0,1,2,2,3,0, 5,4,7,7,6,5, 8,9,10,10,11,8, 15,14,13,13,12,15, 16,17,18,18,19,16, 21,20,23,23,22,21 };
+        models[name] = std::make_shared<EngineModel>(device, builder);
+        return;
+    }
+    // ★ 2. 구(Sphere) 생성기
+    else if (filepath == "Primitive:Sphere") {
+        EngineModel::Builder builder{};
+        const int sectors = 36;
+        const int stacks = 18;
+        const float PI = 3.14159265359f;
+        for (int i = 0; i <= stacks; ++i) {
+            float V = (float)i / stacks;
+            float phi = V * PI;
+            for (int j = 0; j <= sectors; ++j) {
+                float U = (float)j / sectors;
+                float theta = U * 2.0f * PI;
+                float x = std::cos(theta) * std::sin(phi);
+                float y = std::cos(phi);
+                float z = std::sin(theta) * std::sin(phi);
+                builder.vertices.push_back({{x, y, z}, {1.0f, 1.0f, 1.0f}, {x, y, z}, {U, V}});
+            }
+        }
+for (int i = 0; i < stacks; ++i) {
+            for (int j = 0; j < sectors; ++j) {
+                int first = (i * (sectors + 1)) + j;
+                int second = first + sectors + 1;
+                builder.indices.insert(builder.indices.end(), { 
+                    (uint32_t)first, (uint32_t)(first + 1), (uint32_t)second, 
+                    (uint32_t)(first + 1), (uint32_t)(second + 1), (uint32_t)second 
+                });
+            }
+        }
+        models[name] = std::make_shared<EngineModel>(device, builder);
+        return;
+    }
+
+    // 일반 FBX/OBJ 로딩
+    EngineModel::Builder builder{};
+    builder.loadModel(filepath);
+    models[name] = std::make_shared<EngineModel>(device, builder);
+}
+
+// 2. 엔티티 스폰 API 구현
+void GameApp::spawnPlayer(const std::string& modelName, glm::vec3 position) {
+    auto player = registry.create();
+    registry.emplace<PlayerTag>(player);
+    
+    auto &transform = registry.emplace<TransformComponent>(player);
+    transform.translation = position;
+    transform.scale = {0.01f, 0.01f, 0.01f}; // 모델에 따라 기본 스케일은 하드코딩하거나 매개변수로 뺄 수 있습니다.
+    
+    // ★ 창고(models)에서 이름으로 모델을 찾아서 넣어줍니다!
+    auto &modelComp = registry.emplace<ModelComponent>(player, models[modelName]);
+    modelComp.roughness = 0.9f; 
+    
+    uint32_t ragdollID = physicsEngine.createSimpleRagdoll(position);
+    registry.emplace<RagdollComponent>(player, ragdollID);
+}
+
+// ==========================================================
+// ★ 데이터 기반 씬 로더 
+// ==========================================================
+void GameApp::loadSceneFromJSON(const std::string& filepath) {
+    std::cout << "JSON 씬 로딩 중: " << filepath << std::endl;
+
+    std::ifstream file(filepath);
+    if (!file.is_open()) {
+        throw std::runtime_error("JSON 씬 파일을 찾을 수 없습니다: " + filepath);
+    }
+
+    json j;
+    file >> j;
+
+    // 1. 필수 에셋 로딩 (models & textures)
+    if (j.contains("required_assets")) {
+        for (const auto& modelData : j["required_assets"]["models"]) {
+            std::string name = modelData["name"];
+            std::string path = modelData["path"];
+            loadModel(name, path);
+            std::cout << "  - 모델 로드 완료: " << name << std::endl;
+        }
+        for (const auto& texData : j["required_assets"]["textures"]) {
+            std::string name = texData["name"];
+            std::string path = texData["path"];
+            loadTexture(name, path);
+            std::cout << "  - 텍스처 로드 완료: " << name << std::endl;
+        }
+    }
+
+    // 2. 엔티티 스폰 (ECS 구성)
+    if (j.contains("entities")) {
+        for (const auto& entityData : j["entities"]) {
+            std::string tag = entityData["tag"];
+            
+            // 1. 트랜스폼 데이터 추출 및 장착 (모든 엔티티 공통)
+            glm::vec3 pos{0.0f}, scale{1.0f};
+            if (entityData.contains("transform")) {
+                auto& t = entityData["transform"];
+                pos = glm::vec3(t["position"][0], t["position"][1], t["position"][2]);
+                scale = glm::vec3(t["scale"][0], t["scale"][1], t["scale"][2]);
+            }
+
+            auto entity = registry.create();
+            auto& transform = registry.emplace<TransformComponent>(entity);
+            transform.translation = pos;
+            transform.scale = scale;
+
+            // 2. 모델이 있는 경우만 ModelComponent 장착
+            if (entityData.contains("model")) {
+                std::string modelName = entityData["model"];
+                if (models.find(modelName) != models.end()) {
+                    auto& modelComp = registry.emplace<ModelComponent>(entity, models[modelName]);
+                    modelComp.roughness = 0.8f; 
+                } else {
+                    std::cerr << "경고: 에셋 창고에 모델이 없습니다 -> " << modelName << std::endl;
+                }
+            }
+
+            // 3. 태그에 따른 특수 컴포넌트 장착
+            if (tag == "Player") {
+                registry.emplace<PlayerTag>(entity);
+                uint32_t ragdollID = physicsEngine.createSimpleRagdoll(pos);
+                registry.emplace<RagdollComponent>(entity, ragdollID);
+            } 
+            else if (tag == "Floor") {
+                registry.emplace<FloorTag>(entity);
+            }
+            else if (tag == "Prop") {
+                registry.emplace<PropTag>(entity); // 일반 사물 명찰!
+            }
+            else if (tag == "Camera") {
+                registry.emplace<CameraTag>(entity);
+            }
+            else if (tag == "Light") {
+                glm::vec3 color{1.0f};
+                float intensity = 100.0f;
+                if (entityData.contains("light")) {
+                    auto& l = entityData["light"];
+                    color = glm::vec3(l["color"][0], l["color"][1], l["color"][2]);
+                    intensity = l["intensity"];
+                }
+                registry.emplace<PointLightComponent>(entity, color, intensity);
+            }
+        }
+    }
+
+    // ★ 수정 3: 씬에 필요한 모델이 로드되었으니, 애니메이션 객체를 생성합니다. (임시 하드코딩)
+    if (models.find("Kedama") != models.end()) {
+        idleAnimation = std::make_unique<EngineAnimation>("../models/KedamaKorone.fbx", models["Kedama"].get());
+        walkAnimation = std::make_unique<EngineAnimation>("../models/Walking.fbx", models["Kedama"].get());
+        animator = std::make_unique<EngineAnimator>(idleAnimation.get());
+    }
+
+    // ★ 수정 4: 모든 에셋과 ECS 엔티티 세팅이 끝났으므로, 디스크립터를 조립합니다!
+    setupDescriptorsAndPipelines();
+    
+    // (선택) 조명이나 카메라도 JSON에서 읽어오도록 확장할 수 있습니다.
+    std::cout << "씬 로딩 완료: " << j["scene_name"] << std::endl;
+}
