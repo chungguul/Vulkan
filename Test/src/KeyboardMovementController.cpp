@@ -1,54 +1,61 @@
 #include "KeyboardMovementController.hpp"
+#include <iostream>
 
-bool KeyboardMovementController::moveInPlaneXZ(GLFWwindow* window, float dt, TransformComponent& transform) {
-    glm::vec3 rotate{0};
-    
-    // 1. 방향키 입력으로 고개 돌리기 (회전)
-    if (glfwGetKey(window, keys.lookRight) == GLFW_PRESS) rotate.y += 1.f;
-    if (glfwGetKey(window, keys.lookLeft) == GLFW_PRESS) rotate.y -= 1.f;
-    if (glfwGetKey(window, keys.lookUp) == GLFW_PRESS) rotate.x += 1.f;
-    if (glfwGetKey(window, keys.lookDown) == GLFW_PRESS) rotate.x -= 1.f;
+bool KeyboardMovementController::updateFreeCamera(GLFWwindow* window, float dt, TransformComponent& transform) {
+    bool isMoving = false;
 
-    // 회전값 적용 (대각선 입력 시 정규화 방지 및 속도/프레임시간 곱하기)
-    if (glm::dot(rotate, rotate) > std::numeric_limits<float>::epsilon()) {
-        transform.rotation += lookSpeed * dt * glm::normalize(rotate);
+    // ==========================================================
+    // 1. 마우스 조작 (고개 돌리기)
+    // ==========================================================
+    if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS) {
+        double mouseX, mouseY;
+        glfwGetCursorPos(window, &mouseX, &mouseY);
+
+        if (firstMouse) {
+            lastMouseX = mouseX;
+            lastMouseY = mouseY;
+            firstMouse = false;
+        }
+
+        float xOffset = (mouseX - lastMouseX) * lookSensitivity;
+        float yOffset = (lastMouseY - mouseY) * lookSensitivity; 
+
+        lastMouseX = mouseX;
+        lastMouseY = mouseY;
+
+        transform.rotation.y += xOffset;  // 좌우 회전 (Yaw)
+        transform.rotation.x += yOffset;  // 상하 회전 (Pitch)
+
+        // 고개가 180도 뒤집히지 않도록 제한
+        transform.rotation.x = glm::clamp(transform.rotation.x, -1.5f, 1.5f);
+        // Y축 오버플로우 방지
+        transform.rotation.y = glm::mod(transform.rotation.y, glm::two_pi<float>());
+    } else {
+        firstMouse = true;
     }
 
-    // 위아래로 너무 꺾이지 않도록 각도 제한 (Pitch 제한)
-    transform.rotation.x = glm::clamp(transform.rotation.x, -1.5f, 1.5f);
-    // Y축 회전은 360도를 넘어가면 0으로 맞춰줌 (오버플로우 방지)
-    transform.rotation.y = glm::mod(transform.rotation.y, glm::two_pi<float>());
-
-    // 2. WASD 입력으로 이동하기
+    // ==========================================================
+    // 2. 키보드 조작 (드론 비행 이동)
+    // ==========================================================
     float yaw = transform.rotation.y;
-    // 현재 바라보는 방향(yaw)을 기준으로 앞으로 갈 벡터와 오른쪽으로 갈 벡터를 계산
+    
+    // 수평(XZ) 평면 이동 벡터 계산
     const glm::vec3 forwardDir{sin(yaw), 0.f, cos(yaw)};
     const glm::vec3 rightDir{forwardDir.z, 0.f, -forwardDir.x};
-    const glm::vec3 upDir{0.f, -1.f, 0.f}; // Vulkan은 Y축이 아래를 향하므로 -1
+    const glm::vec3 upDir{0.f, -1.f, 0.f}; // Vulkan은 Y축이 아래로 갈수록 커짐
 
     glm::vec3 moveDir{0.f};
-    if (glfwGetKey(window, keys.moveForward) == GLFW_PRESS) moveDir -= forwardDir; // 앞으로 가려면 빼야함
-    if (glfwGetKey(window, keys.moveBackward) == GLFW_PRESS) moveDir += forwardDir; // 뒤로 가려면 더해야함
-    if (glfwGetKey(window, keys.moveRight) == GLFW_PRESS) moveDir += rightDir;
-    if (glfwGetKey(window, keys.moveLeft) == GLFW_PRESS) moveDir -= rightDir;
-    if (glfwGetKey(window, keys.moveUp) == GLFW_PRESS) moveDir += upDir;
-    if (glfwGetKey(window, keys.moveDown) == GLFW_PRESS) moveDir -= upDir;
+    if (glfwGetKey(window, keys.moveForward) == GLFW_PRESS) moveDir -= forwardDir;
+    if (glfwGetKey(window, keys.moveBackward) == GLFW_PRESS) moveDir += forwardDir;
+    if (glfwGetKey(window, keys.moveRight) == GLFW_PRESS) moveDir -= rightDir;
+    if (glfwGetKey(window, keys.moveLeft) == GLFW_PRESS) moveDir += rightDir;
+    if (glfwGetKey(window, keys.moveUp) == GLFW_PRESS) moveDir -= upDir;   // E키: 위로
+    if (glfwGetKey(window, keys.moveDown) == GLFW_PRESS) moveDir += upDir; // Q키: 아래로
 
-    // 이동 적용
     if (glm::dot(moveDir, moveDir) > glm::epsilon<float>()) {
-        // 1. 이동 벡터 정규화
-        glm::vec3 normalizedDir = glm::normalize(moveDir);
-        
-        // 2. 위치 이동 (기존 코드)
-        transform.translation += moveSpeed * dt * normalizedDir;
-        
-        // ★ 3. 방향 전환 (새로 추가!)
-        // 캐릭터가 이동하는 방향(normalizedDir)을 바라보도록 Y축 회전값을 계산합니다.
-        // atan2 함수를 사용하여 X, Z 좌표를 기반으로 라디안 각도를 구합니다.
-        //gameObject.transform.rotation.y = glm::atan(normalizedDir.x, normalizedDir.z);
-
-        return true; 
+        transform.translation += moveSpeed * dt * glm::normalize(moveDir);
+        isMoving = true;
     }
 
-    return false;
+    return isMoving;
 }

@@ -27,14 +27,15 @@ layout(set = 0, binding = 0) uniform GlobalUbo {
     int numPointLights;
 } ubo;
 
+layout(set = 0, binding = 1) uniform sampler2D texSampler;
+layout(set = 0, binding = 2) uniform sampler2D shadowMap;
+layout(set = 0, binding = 3) uniform samplerCube environmentMap;
+
 layout(push_constant) uniform Push {
     mat4 modelMatrix;
     float roughness;
     float metallic;
 } push;
-
-layout(set = 0, binding = 1) uniform sampler2D texSampler;
-layout(set = 0, binding = 2) uniform sampler2D shadowMap;
 
 const float PI = 3.14159265359;
 
@@ -80,6 +81,10 @@ vec3 fresnelSchlick(float cosTheta, vec3 F0) {
     return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
 }
 // ==========================================
+
+vec3 fresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness) {
+    return F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+}
 
 void main() {
     // 반사/굴절 렌더링을 위한 가위질 (이전 물 그래픽용 코드 유지)
@@ -179,13 +184,46 @@ void main() {
     }
 
     // --- 최종 색상 합성 ---
-    vec3 ambient = ubo.ambientLightColor.rgb * ubo.ambientLightColor.a * albedo * ao;
+    // ==========================================================
+    // ★ IBL (Image-Based Lighting) 환경광 계산
+    // ==========================================================
+    // 1. 거칠기(Roughness)를 반영한 프레넬 계산
+    vec3 kS_IBL = fresnelSchlickRoughness(max(dot(N, V), 0.0), F0, roughness);
+    vec3 kD_IBL = 1.0 - kS_IBL;
+    kD_IBL *= 1.0 - metallic;
+
+    // 2. Diffuse IBL (환경의 빛이 난반사되어 묻어나는 색)
+    // [수정!] N으로 원본 이미지를 바로 샘플링하면 얼굴에 구름이 찍힙니다!
+    // 하늘의 꼭대기(위) 색상과 바닥(아래) 색상을 샘플링한 뒤, 부드럽게 그라데이션으로 섞어줍니다.
+    vec3 skyColor = texture(environmentMap, vec3(0.0, 1.0, 0.0)).rgb;
+    vec3 groundColor = texture(environmentMap, vec3(0.0, -1.0, 0.0)).rgb;
+    vec3 irradiance = mix(groundColor, skyColor, N.y * 0.5 + 0.5);
+    
+    vec3 diffuseIBL = irradiance * albedo;
+
+    // 3. Specular IBL (주변 환경이 거울처럼 비치는 색)
+    vec3 R = reflect(-V, N); 
+    // 우리는 현재 밉맵(Mipmap)이 없으므로 textureLod 대신 그냥 texture를 씁니다.
+    vec3 prefilteredColor = texture(environmentMap, R).rgb; 
+    
+    // [수정!] smoothstep을 사용하여 거칠기가 0.8 이상이면 반사광을 '완벽한 0.0'으로 증발시킵니다!
+    // (roughness가 0.3이면 반사도 1.0, 0.8이면 반사도 0.0이 됨)
+    float reflectionDampening = smoothstep(0.8, 0.3, roughness); 
+    
+    vec3 specularIBL = prefilteredColor * kS_IBL * reflectionDampening;
+
+    // 4. 최종 Ambient = 하늘의 난반사 + 하늘의 정반사
+    vec3 ambient = (kD_IBL * diffuseIBL + specularIBL) * ao;
+    
+    // 환경광이 너무 강하면 낮춰줍니다.
+    ambient *= 0.8;
+
+    // --- 최종 색상 합성 ---
+    // 태양/포인트 라이트의 누적빛(Lo)과 IBL 환경광(ambient)을 더합니다!
     vec3 color = ambient + Lo * (1.0 - shadow);
 
-    // ★ 3. 톤 매핑(Tone Mapping) 및 감마 복원
-    // PBR 계산으로 인해 색상이 1.0(흰색)을 넘어가서 눈뽕(?)이 오는 것을 방지(Reinhard)
+    // 톤 매핑 및 감마 복원 (기존 유지)
     color = color / (color + vec3(1.0));
-    // 선형 공간에서 계산이 끝났으므로, 모니터가 올바르게 보여줄 수 있도록 sRGB로 되돌립니다.
     color = pow(color, vec3(1.0/2.2));
 
     outColor = vec4(color, 1.0);

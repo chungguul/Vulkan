@@ -121,13 +121,14 @@ int main()
         EngineCubemap skyboxCubemap{device, hdrSkyboxTexture, 4096};
 
         std::cout << "텍스처 로딩 완료..." << std::endl;
-        // ★ 2. 디스크립터 매니저 생성 및 세팅 (두 줄 컷!)
+        // ★ 2. 디스크립터 매니저 생성 및 세팅 
         EngineDescriptorManager descriptorManager{device};
 
         std::vector<VkDescriptorSetLayoutBinding> globalBindings = {
             {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
             {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
-            {2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}
+            {2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+            {3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}
         };
         VkDescriptorSetLayout globalSetLayout = descriptorManager.createDescriptorSetLayout(globalBindings);
 
@@ -217,7 +218,7 @@ int main()
         // koroneTransform.scale = {0.1f,0.1f, 0.1f};
 
         auto &koroneModel = registry.emplace<ModelComponent>(koroneEntity, kedamaModel);
-        koroneModel.roughness = 0.9f; // 코로네는 뽀송뽀송하게
+        koroneModel.roughness = 1.0f; // 코로네는 뽀송뽀송하게
         koroneModel.metallic = 0.0f;
 
         //registry.emplace<ModelComponent>(koroneEntity, kedamaModel);
@@ -316,6 +317,12 @@ int main()
         reflectionInfo.imageView = engineWater.getReflectionImageView();
         reflectionInfo.sampler = engineWater.getSampler();
 
+        // 스카이 박스 텍스쳐 정보
+        VkDescriptorImageInfo skyboxInfo{};
+        skyboxInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        skyboxInfo.imageView = skyboxCubemap.getImageView(); 
+        skyboxInfo.sampler = skyboxCubemap.getSampler();
+
         VkDescriptorImageInfo refractionInfo{};
         refractionInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         refractionInfo.imageView = engineWater.getRefractionImageView();
@@ -348,6 +355,7 @@ int main()
             .bindBuffer(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &uboInfoMain)
             .bindImage(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &koroneImageInfo)
             .bindImage(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &shadowImageInfo)
+            .bindImage(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &skyboxInfo)
             .build(koroneMainSet);
 
         VkDescriptorSet floorMainSet;
@@ -355,6 +363,7 @@ int main()
             .bindBuffer(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &uboInfoMain)
             .bindImage(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &floorImageInfo)
             .bindImage(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &shadowImageInfo)
+            .bindImage(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &skyboxInfo)
             .build(floorMainSet);
 
         // [반사 화면용 세트 (거울)]
@@ -489,14 +498,32 @@ int main()
             // 5. 카메라 및 조종기 업데이트
             auto &koroneTrans = registry.get<TransformComponent>(koroneEntity);
             auto &viewTrans = registry.get<TransformComponent>(viewerEntity);
-            cameraController.moveInPlaneXZ(window.getGLFWwindow(), frameTime, viewTrans);
-            camera.setViewTarget(viewTrans.translation, koroneTrans.translation);
+            
+            // 키보드/마우스 입력으로 카메라 위치와 회전값 업데이트
+            cameraController.updateFreeCamera(window.getGLFWwindow(), frameTime, viewTrans);
+            
+            // 카메라가 바라볼 3D 목표 지점(Target) 계산 (구면 좌표계 -> 직교 좌표계 변환)
+            float yaw = viewTrans.rotation.y;
+            float pitch = viewTrans.rotation.x;
+            
+            // 앞으로 나아가는 방향 벡터 (-Z 방향이 기본 전방)
+            glm::vec3 lookDirection{
+                -sin(yaw) * cos(pitch),
+                 sin(pitch), 
+                -cos(yaw) * cos(pitch)
+            };
+            
+            // 내 위치 + 바라보는 방향 = 목표 지점
+            glm::vec3 cameraTarget = viewTrans.translation + lookDirection;
 
-            // 화면 비율에 맞춰 원근감(Projection) 행렬을 계산합니다!
+            // 카메라 세팅!
+            camera.setViewTarget(viewTrans.translation, cameraTarget);
+
+            // 화면 비율에 맞춰 원근감(Projection) 행렬을 계산
             float aspect = swapChain.getWidth() / (float)swapChain.getHeight();
             camera.setPerspectiveProjection(glm::radians(50.f), aspect, 0.1f, 1000.f);
 
-            // 애니메이터 업데이트
+            // 코로네는 일단 대기 애니메이션만 재생 (나중에 머신러닝 물리로 교체 예정!)
             animator.playAnimation(&idleAnimation);
             animator.updateAnimation(frameTime);
 
