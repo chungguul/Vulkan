@@ -32,8 +32,8 @@ const int MAX_BONES = 100;
 const int MAX_POINT_LIGHTS = 10; // 최대 10개의 광원 허용
 
 struct PointLight {
-    glm::vec4 position; // xyz: 위치, w: 강도(intensity)
-    glm::vec4 color;    // xyz: 색상, w: 빈자리(padding)
+    alignas(16) glm::vec4 position; // xyz: 위치, w: 강도(intensity)
+    alignas(16) glm::vec4 color;    // xyz: 색상, w: 빈자리(padding)
 };
 
 // UBO(유니폼 버퍼)용 구조체 새로 생성
@@ -52,7 +52,7 @@ struct GlobalUbo
     glm::vec4 clipPlane;
     float time;
 
-    PointLight pointLights[MAX_POINT_LIGHTS];
+    alignas(16) PointLight pointLights[MAX_POINT_LIGHTS];
     int numPointLights;
 };
 
@@ -246,6 +246,19 @@ int main()
         auto viewerEntity = registry.create();
         auto &viewerTransform = registry.emplace<TransformComponent>(viewerEntity);
         viewerTransform.translation = {0.f, 2.0f, -5.0f};
+
+        //3.1 다중 조명 
+        // 붉은색 조명 생성
+        auto redLight = registry.create();
+        auto &redTrans = registry.emplace<TransformComponent>(redLight);
+        redTrans.translation = { 2.0f, 1.0f, 0.0f }; // 코로네 오른쪽
+        registry.emplace<PointLightComponent>(redLight, glm::vec3(1.0f, 0.1f, 0.1f), 100.0f); // 붉은색, 강도 100
+
+        // 푸른색 조명 생성
+        auto blueLight = registry.create();
+        auto &blueTrans = registry.emplace<TransformComponent>(blueLight);
+        blueTrans.translation = { -2.0f, 1.5f, 2.0f }; // 코로네 왼쪽 앞
+        registry.emplace<PointLightComponent>(blueLight, glm::vec3(0.1f, 0.2f, 1.0f), 150.0f); // 푸른색, 강도 150
 
         // 키보드 조종기 생성
         KeyboardMovementController cameraController{};
@@ -505,6 +518,22 @@ int main()
             uboMain.lightSpaceMatrix = glm::ortho(-10.0f, 10.0f, -10.0f, 10.0f, 1.0f, 50.0f) * glm::lookAt(-uboMain.lightDirection * 20.0f, glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
             uboMain.lightSpaceMatrix[1][1] *= -1.0f;
             for (int i = 0; i < MAX_BONES; ++i) { uboMain.finalBonesMatrices[i] = ubo.finalBonesMatrices[i]; }
+
+            int lightCount = 0;
+            auto lightView = registry.view<TransformComponent, PointLightComponent>();
+            for (auto entity : lightView) {
+                if (lightCount >= MAX_POINT_LIGHTS) break; // 최대 10개까지만!
+                
+                auto &transform = lightView.get<TransformComponent>(entity);
+                auto &pointLight = lightView.get<PointLightComponent>(entity);
+                
+                // vec4(x, y, z, 강도)
+                uboMain.pointLights[lightCount].position = glm::vec4(transform.translation, pointLight.intensity);
+                // vec4(r, g, b, 패딩)
+                uboMain.pointLights[lightCount].color = glm::vec4(pointLight.color, 1.0f); 
+                lightCount++;
+            }
+            uboMain.numPointLights = lightCount;
 
             // [2] 굴절용 UBO (메인과 카메라는 똑같지만, 물 위쪽을 자름)
             GlobalUbo uboRefraction = uboMain;

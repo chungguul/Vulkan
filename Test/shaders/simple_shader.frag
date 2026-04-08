@@ -7,6 +7,11 @@ layout(location = 3) in vec2 fragUV;
 
 layout(location = 0) out vec4 outColor;
 
+struct PointLight {
+    vec4 position; // xyz: 위치, w: 강도
+    vec4 color;    // xyz: 색상
+};
+
 layout(set = 0, binding = 0) uniform GlobalUbo {
     mat4 projectionViewMatrix;
     vec4 ambientLightColor;
@@ -18,6 +23,8 @@ layout(set = 0, binding = 0) uniform GlobalUbo {
     mat4 lightSpaceMatrix; 
     vec4 clipPlane; 
     float time;
+    PointLight pointLights[10];
+    int numPointLights;
 } ubo;
 
 layout(push_constant) uniform Push {
@@ -123,6 +130,40 @@ void main() {
 
     float NdotL = max(dot(N, L), 0.0);
     Lo += (kD * albedo / PI + specular) * radiance * NdotL;
+
+    for(int i = 0; i < ubo.numPointLights; i++) {
+        vec3 lightPos = ubo.pointLights[i].position.xyz;
+        float intensity = ubo.pointLights[i].position.w;
+        vec3 lightColor = ubo.pointLights[i].color.xyz;
+
+        // 1. 빛의 방향과 거리(Attenuation) 계산 (역제곱 법칙)
+        vec3 L_pt = lightPos - fragPosWorld;
+        float distance = length(L_pt);
+        L_pt = normalize(L_pt);
+        vec3 H_pt = normalize(V + L_pt);
+
+        // 거리가 멀어질수록 빛이 급격히 약해집니다.
+        float attenuation = 1.0 / (distance * distance); 
+        vec3 radiance_pt = lightColor * intensity * attenuation;
+
+        // 2. Cook-Torrance BRDF 적용 (태양광과 동일한 마법 공식)
+        float NDF_pt = DistributionGGX(N, H_pt, roughness);   
+        float G_pt   = GeometrySmith(N, V, L_pt, roughness);      
+        vec3 F_pt    = fresnelSchlick(max(dot(H_pt, V), 0.0), F0);       
+        
+        vec3 nominator_pt    = NDF_pt * G_pt * F_pt;
+        float denominator_pt = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L_pt), 0.0) + 0.0001;
+        vec3 specular_pt = nominator_pt / denominator_pt;
+        
+        vec3 kS_pt = F_pt;
+        vec3 kD_pt = vec3(1.0) - kS_pt;
+        kD_pt *= 1.0 - metallic;
+
+        float NdotL_pt = max(dot(N, L_pt), 0.0);
+        
+        // ★ 태양빛(Lo)에 새로운 포인트 라이트 에너지를 계속 누적하여 더합니다!
+        Lo += (kD_pt * albedo / PI + specular_pt) * radiance_pt * NdotL_pt;
+    }
 
     // --- 그림자 계산 (기존 코드 유지) ---
     vec4 lightSpacePos = ubo.lightSpaceMatrix * vec4(fragPosWorld, 1.0);
