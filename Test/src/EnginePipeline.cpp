@@ -9,6 +9,12 @@ EnginePipeline::EnginePipeline(EngineDevice& device, const std::string& vertFile
     createGraphicsPipeline(vertFilepath, fragFilepath, configInfo);
 }
 
+EnginePipeline::EnginePipeline(EngineDevice &device, const std::string &computeFilepath, VkPipelineLayout pipelineLayout)
+    : engineDevice{device} 
+{
+    createComputePipeline(computeFilepath, pipelineLayout);
+}
+
 EnginePipeline::~EnginePipeline() {
     vkDestroyPipeline(engineDevice.getDevice(), graphicsPipeline, nullptr);
     
@@ -163,4 +169,31 @@ void EnginePipeline::createGraphicsPipeline(const std::string& vertFilepath, con
 
     vkDestroyShaderModule(engineDevice.getDevice(), fragShaderModule, nullptr);
     vkDestroyShaderModule(engineDevice.getDevice(), vertShaderModule, nullptr);
+}
+
+void EnginePipeline::createComputePipeline(const std::string &computeFilepath, VkPipelineLayout pipelineLayout) {
+    auto computeCode = readFile(computeFilepath);
+    VkShaderModule computeShaderModule = createShaderModule(computeCode);
+
+    VkPipelineShaderStageCreateInfo computeShaderStageInfo{};
+    computeShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    computeShaderStageInfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+    computeShaderStageInfo.module = computeShaderModule;
+    computeShaderStageInfo.pName = "main";
+
+    VkComputePipelineCreateInfo pipelineInfo{};
+    pipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+    pipelineInfo.layout = pipelineLayout;
+    pipelineInfo.stage = computeShaderStageInfo;
+
+    // (참고: 멤버 변수 이름이 graphicsPipeline으로 되어있어도, 파이프라인 핸들 타입은 똑같으므로 그냥 재활용합니다)
+    if (vkCreateComputePipelines(engineDevice.getDevice(), VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &graphicsPipeline) != VK_SUCCESS) {
+        throw std::runtime_error("컴퓨트 파이프라인 생성 실패!");
+    }
+
+    vkDestroyShaderModule(engineDevice.getDevice(), computeShaderModule, nullptr);
+    
+    // 레이아웃은 외부(GameApp)에서 만들어서 넘겨주었으므로, 여기서 파괴하지 않도록 설정
+    this->pipelineLayout = pipelineLayout;
+    this->ownsPipelineLayout = false;
 }

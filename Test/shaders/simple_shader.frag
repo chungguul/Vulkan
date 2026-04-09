@@ -86,6 +86,33 @@ vec3 fresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness) {
     return F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
 }
 
+float PCFShadow(vec4 shadowCoord) {
+    // 그림자 맵 범위를 벗어나면 그림자가 아님 (밝음)
+    if(shadowCoord.z > -1.0 && shadowCoord.z < 1.0) {
+        float shadow = 0.0;
+        
+        // 텍스처 한 픽셀의 크기를 구합니다 (예: 2048x2048 해상도 기준)
+        vec2 texelSize = 1.0 / textureSize(shadowMap, 0); 
+        
+        // 깊이 편향(Bias)을 주어 그림자 표면의 검은 줄무늬(Acne)를 없앱니다.
+        // 빛의 각도에 따라 동적으로 조절하면 더 좋습니다만, 일단 고정값을 줍니다.
+        float bias = 0.005; 
+        float currentDepth = shadowCoord.z - bias;
+
+        // 주변 3x3 픽셀(총 9개)을 검사해서 평균을 냅니다.
+        for(int x = -1; x <= 1; ++x) {
+            for(int y = -1; y <= 1; ++y) {
+                float pcfDepth = texture(shadowMap, shadowCoord.xy + vec2(x, y) * texelSize).r; 
+                shadow += currentDepth > pcfDepth ? 0.2 : 1.0; // 그림자면 0.2(어두움), 아니면 1.0(밝음)
+            }
+        }
+        shadow /= 9.0; // 9개 샘플의 평균
+        return shadow;
+    }
+    return 1.0;
+}
+
+
 void main() {
     // 반사/굴절 렌더링을 위한 가위질 (이전 물 그래픽용 코드 유지)
     if (dot(vec4(fragPosWorld, 1.0), ubo.clipPlane) < 0.0) {
@@ -177,10 +204,18 @@ void main() {
 
     float shadow = 0.0;
     if (projCoords.z > -1.0 && projCoords.z < 1.0) {
-        float closestDepth = texture(shadowMap, projCoords.xy).r;
         float currentDepth = projCoords.z;
         float bias = max(0.005 * (1.0 - dot(N, L)), 0.001);
-        shadow = currentDepth - bias > closestDepth ? 1.0 : 0.0;
+
+        //(주변 9개 픽셀을 검사하여 평균 내기)
+        vec2 texelSize = 1.0 / textureSize(shadowMap, 0);
+        for(int x = -1; x <= 1; ++x) {
+            for(int y = -1; y <= 1; ++y) {
+                float pcfDepth = texture(shadowMap, projCoords.xy + vec2(x, y) * texelSize).r;
+                shadow += currentDepth - bias > pcfDepth ? 1.0 : 0.0;
+            }
+        }
+        shadow /= 9.0; // 9개의 결과를 평균 내서 0.0 ~ 1.0 사이의 부드러운 값 도출
     }
 
     // --- 최종 색상 합성 ---

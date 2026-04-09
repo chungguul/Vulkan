@@ -36,6 +36,12 @@ struct PointLight {
     alignas(16) glm::vec4 color;
 };
 
+struct Particle {
+    alignas(16) glm::vec3 position;
+    alignas(16) glm::vec3 velocity;
+    alignas(16) glm::vec4 color;
+};
+
 struct GlobalUbo {
     glm::mat4 projectionView;
     glm::vec4 ambientLightColor{1.0f, 1.0f, 1.0f, 0.1f};
@@ -135,5 +141,17 @@ private:
 
     std::unique_ptr<EngineRenderer> engineRenderer;
 
+
+    //particle system
+    static constexpr int PARTICLE_COUNT = 10000; // 1만 개!
+
+    std::unique_ptr<EngineBuffer> particleSSBO;
+    
+    VkDescriptorSetLayout computeSetLayout;
+    VkDescriptorSet computeDescriptorSet;
+    VkPipelineLayout computePipelineLayout;
+    
+    std::unique_ptr<EnginePipeline> computePipeline;
+    std::unique_ptr<EnginePipeline> particlePipeline;
 };
 

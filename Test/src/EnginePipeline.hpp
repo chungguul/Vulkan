@@ -35,6 +35,8 @@ public:
             const std::string& fragFilepath, 
             const PipelineConfigInfo& configInfo
     );
+
+    EnginePipeline(EngineDevice &device, const std::string &computeFilepath, VkPipelineLayout pipelineLayout);
     
     ~EnginePipeline();
 
@@ -52,6 +54,8 @@ private:
         const PipelineConfigInfo& configInfo
     );
         
+void createComputePipeline(const std::string &computeFilepath, VkPipelineLayout pipelineLayout);
+
     VkShaderModule createShaderModule(const std::vector<char>& code);
 
     EngineDevice& engineDevice;
@@ -59,4 +63,5 @@ private:
     VkPipelineLayout pipelineLayout;
 
     bool ownsPipelineLayout = false;
+
 };

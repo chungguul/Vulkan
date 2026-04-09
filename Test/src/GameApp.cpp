@@ -39,6 +39,23 @@ GameApp::GameApp() {
     engineWater = std::make_unique<EngineWater>(device, WIDTH, HEIGHT);
     engineShadow = std::make_unique<EngineShadow>(device, 2048, 2048);
     descriptorManager = std::make_unique<EngineDescriptorManager>(device);
+
+    //particle
+    std::vector<Particle> particles(PARTICLE_COUNT);
+    for (auto& particle : particles) {
+        particle.position = glm::vec3(0.0f, 10.0f, 0.0f); // 코로네 위쪽에서 스폰
+        particle.velocity = glm::vec3((rand() % 100 - 50) * 0.1f, (rand() % 100) * 0.1f, (rand() % 100 - 50) * 0.1f);
+        particle.color = glm::vec4(1.0f, (rand() % 100) * 0.01f, 0.2f, 1.0f);
+    }
+
+    particleSSBO = std::make_unique<EngineBuffer>(
+        device, sizeof(Particle) * PARTICLE_COUNT, 
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+    );
+    particleSSBO->map();
+    particleSSBO->writeToBuffer(particles.data());
+
 }
 
 GameApp::~GameApp() {
@@ -196,6 +213,46 @@ void GameApp::setupDescriptorsAndPipelines() {
 
     std::vector<VkBuffer> uboBufferArray = {uboBufferMain->getBuffer()};
     engineSkybox = std::make_unique<EngineSkybox>(device, engineRenderer->getSwapChainRenderPass(), WIDTH, HEIGHT, *skyboxCubemap, globalSetLayout, uboBufferArray, sizeof(GlobalUbo));
+
+    //particle
+    std::vector<VkDescriptorSetLayoutBinding> computeBindings = {
+        {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr},
+        {1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_VERTEX_BIT, nullptr}
+    };
+    computeSetLayout = descriptorManager->createDescriptorSetLayout(computeBindings);
+
+    auto computeUboInfo = uboBufferMain->descriptorInfo(); 
+    VkDescriptorBufferInfo ssboInfo{particleSSBO->getBuffer(), 0, VK_WHOLE_SIZE};
+
+    EngineDescriptorManager::Builder(*descriptorManager)
+        .bindBuffer(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, &computeUboInfo)
+        .bindBuffer(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_VERTEX_BIT, &ssboInfo)
+        .build(computeDescriptorSet);
+
+    // 2. 컴퓨트 파이프라인 생성 (dt 푸시 상수 포함)
+    VkPushConstantRange computePush{VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(float)};
+    VkPipelineLayoutCreateInfo computeLayoutInfo{};
+    computeLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    computeLayoutInfo.setLayoutCount = 1;
+    computeLayoutInfo.pSetLayouts = &computeSetLayout;
+    computeLayoutInfo.pushConstantRangeCount = 1;
+    computeLayoutInfo.pPushConstantRanges = &computePush;
+    vkCreatePipelineLayout(device.getDevice(), &computeLayoutInfo, nullptr, &computePipelineLayout);
+    
+    computePipeline = std::make_unique<EnginePipeline>(device, "../Test/shaders/particle.comp.spv", computePipelineLayout);
+
+    // 3. 파티클 그래픽스 파이프라인 생성 (푸시 상수 없음!)
+    PipelineConfigInfo particleConfig{};
+    EnginePipeline::defaultPipelineConfigInfo(particleConfig, WIDTH, HEIGHT);
+    particleConfig.inputAssemblyInfo.topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST; 
+    particleConfig.attributeDescriptions.clear(); 
+    particleConfig.bindingDescriptions.clear();
+    particleConfig.pushConstantRanges.clear(); // ★그래픽스는 푸시 상수 안 씀!
+    particleConfig.renderPass = engineRenderer->getSwapChainRenderPass();
+    particleConfig.descriptorSetLayouts = {computeSetLayout}; // 메뉴판 공유!
+
+    particlePipeline = std::make_unique<EnginePipeline>(device, "../Test/shaders/particle.vert.spv", "../Test/shaders/particle.frag.spv", particleConfig);
+
 }
 
 // ==========================================================
@@ -205,6 +262,11 @@ void GameApp::run() {
     std::cout << "엔진 루프 진입 중..." << std::endl;
     auto currentTime = std::chrono::high_resolution_clock::now();
     float totalTime = 0.0f;
+    const float targetFrameTime = 1.0f / 240.0f;
+
+    // ★ FPS 측정을 위한 변수 추가
+    int frameCount = 0;
+    float timePassed = 0.0f;
 
     while (!window.shouldClose()) {
         window.pollEvents();
@@ -216,6 +278,17 @@ void GameApp::run() {
         float frameTime = std::chrono::duration<float, std::chrono::seconds::period>(newTime - currentTime).count();
         currentTime = newTime;
         totalTime += frameTime;
+
+        frameCount++;
+        timePassed += frameTime;
+        if (timePassed >= 1.0f) {
+            std::string title = "My Vulkan Engine | FPS: " + std::to_string(frameCount) 
+                              + " | Frame Time: " + std::to_string(1000.0f / frameCount) + " ms";
+            glfwSetWindowTitle(window.getGLFWwindow(), title.c_str());
+            
+            frameCount = 0;
+            timePassed -= 1.0f; // 오차를 줄이기 위해 0 대신 1.0을 빼줍니다.
+        }
 
         physicsEngine.update(frameTime);
 
@@ -244,7 +317,8 @@ void GameApp::run() {
         uboMain.projectionView = uboMain.proj * uboMain.view;
         uboMain.time = totalTime;
         uboMain.lightDirection = glm::normalize(glm::vec3(0.5f, -3.0f, 1.0f));
-        uboMain.lightSpaceMatrix = glm::ortho(-10.0f, 10.0f, -10.0f, 10.0f, 1.0f, 50.0f) * glm::lookAt(-uboMain.lightDirection * 20.0f, glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+        uboMain.lightSpaceMatrix = glm::ortho(-50.0f, 50.0f, -50.0f, 50.0f, 0.1f, 150.0f) * 
+                                   glm::lookAt(-uboMain.lightDirection * 50.0f, glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
         uboMain.lightSpaceMatrix[1][1] *= -1.0f;
 
         auto ragdollView = registry.view<TransformComponent, RagdollComponent, ModelComponent>();
@@ -291,6 +365,27 @@ void GameApp::run() {
         // [3] 대망의 렌더링 시작! (복잡한 펜스, 이미지 획득이 증발했습니다!)
         // =======================================================
         if (auto commandBuffer = engineRenderer->beginFrame()) {
+            //particle
+            // ★ [추가 1] 무대 세팅 전, 공장(Compute) 먼저 가동!
+            vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipeline->getPipeline());
+            vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 0, 1, &computeDescriptorSet, 0, nullptr);
+            vkCmdPushConstants(commandBuffer, computePipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(float), &frameTime);
+
+            uint32_t groupCountX = (PARTICLE_COUNT + 255) / 256;
+            vkCmdDispatch(commandBuffer, groupCountX, 1, 1);
+
+            // ★ [추가 2] GPU야, 파티클 계산 다 끝날 때까지 화면 그리지 말고 기다려!
+            VkBufferMemoryBarrier particleBarrier{};
+            particleBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+            particleBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+            particleBarrier.dstAccessMask = VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT;
+            particleBarrier.buffer = particleSSBO->getBuffer();
+            particleBarrier.offset = 0; particleBarrier.size = VK_WHOLE_SIZE;
+
+            vkCmdPipelineBarrier(
+                commandBuffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT,
+                0, 0, nullptr, 1, &particleBarrier, 0, nullptr
+            );
             
             // --- 패스 1: 그림자 렌더링 (Shadow) ---
             VkRenderPassBeginInfo shadowPassInfo{};
@@ -315,6 +410,8 @@ void GameApp::run() {
             }
             vkCmdEndRenderPass(commandBuffer);
 
+            
+
             // --- 패스 1.5: 반사 렌더링 (Reflection) ---
             VkRenderPassBeginInfo reflectionPassInfo{};
             reflectionPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
@@ -338,6 +435,9 @@ void GameApp::run() {
 
             vkCmdBeginRenderPass(commandBuffer, &refractionPassInfo, VK_SUBPASS_CONTENTS_INLINE);
             simpleRenderSystem->renderGameObjects(commandBuffer, registry, RenderPassType::REFRACTION);
+            
+            engineSkybox->render(commandBuffer, 0);
+
             vkCmdEndRenderPass(commandBuffer);
 
             // =======================================================
@@ -351,6 +451,11 @@ void GameApp::run() {
             
             // 2. 스카이박스
             engineSkybox->render(commandBuffer, 0);
+
+            //2.5 particle
+            vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, particlePipeline->getPipeline());
+            vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, particlePipeline->getPipelineLayout(), 0, 1, &computeDescriptorSet, 0, nullptr);
+            vkCmdDraw(commandBuffer, PARTICLE_COUNT, 1, 0, 0);
             
             // 3. 물
             vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, waterPipeline->getPipeline());
