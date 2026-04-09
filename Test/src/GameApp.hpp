@@ -19,6 +19,7 @@
 #include "EngineAnimator.hpp"
 #include "SimpleRenderSystem.hpp"
 #include "Components.hpp"
+#include "EngineThreadPool.hpp"
 
 #include "EngineRenderer.hpp"
 
@@ -153,5 +154,7 @@ private:
     
     std::unique_ptr<EnginePipeline> computePipeline;
     std::unique_ptr<EnginePipeline> particlePipeline;
+
+    std::unique_ptr<EngineThreadPool> threadPool;
 };
 

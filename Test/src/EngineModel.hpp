@@ -41,7 +41,12 @@ public:
         std::map<std::string, BoneInfo> boneInfoMap{};
         int boneCounter = 0;
 
+        glm::vec3 boundingCenter{0.0f};
+        float boundingRadius{0.0f};
+
         void loadModel(const std::string& filepath);
+
+        void calculateBoundingSphere();
 
     private:
         void extractBoneWeightForVertices(aiMesh* mesh, const aiScene* scene, uint32_t vertexOffset);
@@ -61,6 +66,9 @@ public:
     const std::map<std::string, BoneInfo>& getBoneInfoMap() const { return boneInfoMap; }
     int getBoneCount() const { return boneCounter; }
 
+    glm::vec3 getBoundingCenter() const { return boundingCenter; }
+    float getBoundingRadius() const { return boundingRadius; }
+
 private:
     void createVertexBuffers(const std::vector<Vertex>& vertices);
     void createIndexBuffers(const std::vector<uint32_t>& indices);
@@ -77,4 +85,7 @@ private:
 
     std::map<std::string, BoneInfo> boneInfoMap{};
     int boneCounter = 0;
+
+    glm::vec3 boundingCenter{0.0f};
+    float boundingRadius{0.0f};
 };

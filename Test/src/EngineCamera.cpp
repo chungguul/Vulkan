@@ -36,3 +36,35 @@ void EngineCamera::setViewYXZ(glm::vec3 position, glm::vec3 rotation) {
     viewMatrix[3][1] = -glm::dot(v, position);
     viewMatrix[3][2] = -glm::dot(w, position);
 }
+
+std::array<FrustumPlane, 6> EngineCamera::getFrustumPlanes() const {
+    std::array<FrustumPlane, 6> planes;
+    glm::mat4 vp = projectionMatrix * viewMatrix;
+
+    // Left, Right, Bottom, Top, Near, Far 순서 추출 (수학 공식입니다!)
+    for (int i = 0; i < 3; ++i) planes[0].normal[i] = vp[i][3] + vp[i][0];
+    planes[0].distance = vp[3][3] + vp[3][0];
+
+    for (int i = 0; i < 3; ++i) planes[1].normal[i] = vp[i][3] - vp[i][0];
+    planes[1].distance = vp[3][3] - vp[3][0];
+
+    for (int i = 0; i < 3; ++i) planes[2].normal[i] = vp[i][3] + vp[i][1];
+    planes[2].distance = vp[3][3] + vp[3][1];
+
+    for (int i = 0; i < 3; ++i) planes[3].normal[i] = vp[i][3] - vp[i][1];
+    planes[3].distance = vp[3][3] - vp[3][0];
+
+    for (int i = 0; i < 3; ++i) planes[4].normal[i] = vp[i][3] + vp[i][2];
+    planes[4].distance = vp[3][3] + vp[3][2];
+
+    for (int i = 0; i < 3; ++i) planes[5].normal[i] = vp[i][3] - vp[i][2];
+    planes[5].distance = vp[3][3] - vp[3][2];
+
+    // 평면 정규화(Normalize)
+    for (auto& plane : planes) {
+        float length = glm::length(plane.normal);
+        plane.normal /= length;
+        plane.distance /= length;
+    }
+    return planes;
+}

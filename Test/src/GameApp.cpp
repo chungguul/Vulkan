@@ -13,6 +13,8 @@ using json = nlohmann::json;
 GameApp::GameApp() {
     std::cout << "엔진 코어 초기화 중..." << std::endl;
     
+    threadPool = std::make_unique<EngineThreadPool>();
+    
     engineRenderer = std::make_unique<EngineRenderer>(window, device);
 
     // 1-1. 물리 엔진 초기화
@@ -361,6 +363,50 @@ void GameApp::run() {
         uboBufferRefraction->writeToBuffer(&uboRefraction);
         uboBufferReflection->writeToBuffer(&uboReflection);
 
+        auto frustumPlanes = camera.getFrustumPlanes();
+        
+        // CullingComponent와 BoundingSphere, Transform을 가진 모든 엔티티 뷰 추출
+        auto cullView = registry.view<CullingComponent, BoundingSphereComponent, TransformComponent>();
+        
+        // 엔티티들을 배열로 모아서 청크(Chunk) 단위로 나눕니다.
+        std::vector<entt::entity> entities(cullView.begin(), cullView.end());
+        size_t chunkSize = 100; // 한 스레드가 처리할 오브젝트 개수
+        
+        for (size_t i = 0; i < entities.size(); i += chunkSize) {
+            size_t end = std::min(i + chunkSize, entities.size());
+            
+            // ★ 스레드 풀에 컬링 작업을 던집니다! (비동기 병렬 처리)
+            threadPool->enqueue([&, i, end]() {
+                for (size_t j = i; j < end; ++j) {
+                    auto entity = entities[j];
+                    auto& transform = cullView.get<TransformComponent>(entity);
+                    auto& sphere = cullView.get<BoundingSphereComponent>(entity);
+                    auto& cull = cullView.get<CullingComponent>(entity);
+
+                    // 월드 좌표 적용된 중심점과 반지름 계산
+                    glm::vec3 center = transform.translation + sphere.offset;
+                    // 스케일 중 가장 큰 값을 곱해줍니다
+                    float maxScale = std::max({transform.scale.x, transform.scale.y, transform.scale.z});
+                    float radius = sphere.radius * maxScale;
+
+                    cull.isVisible = true;
+
+                    // 6개의 평면 중 하나라도 구체가 완전히 뒤쪽에 있으면 컬링(제외)!
+                    for (const auto& plane : frustumPlanes) {
+                        float distance = glm::dot(plane.normal, center) + plane.distance;
+                        if (distance < -radius) {
+                            cull.isVisible = false; // 안 보임!
+                            break;
+                        }
+                    }
+                }
+            });
+        }
+        
+        // 모든 워커 스레드가 컬링 계산을 마칠 때까지 대기합니다.
+        threadPool->waitAll();
+        // =======================================================
+
         // =======================================================
         // [3] 대망의 렌더링 시작! (복잡한 펜스, 이미지 획득이 증발했습니다!)
         // =======================================================
@@ -566,6 +612,9 @@ void GameApp::spawnPlayer(const std::string& modelName, glm::vec3 position) {
     
     uint32_t ragdollID = physicsEngine.createSimpleRagdoll(position);
     registry.emplace<RagdollComponent>(player, ragdollID);
+
+    registry.emplace<BoundingSphereComponent>(player, 100.0f); // 예: 반경 100
+    registry.emplace<CullingComponent>(player);
 }
 
 // ==========================================================
@@ -622,6 +671,12 @@ void GameApp::loadSceneFromJSON(const std::string& filepath) {
                 if (models.find(modelName) != models.end()) {
                     auto& modelComp = registry.emplace<ModelComponent>(entity, models[modelName]);
                     modelComp.roughness = 0.8f; 
+
+                    float radius = modelComp.model->getBoundingRadius();
+                    glm::vec3 center = modelComp.model->getBoundingCenter();
+
+                    registry.emplace<BoundingSphereComponent>(entity, radius, center); 
+                    registry.emplace<CullingComponent>(entity);
                 } else {
                     std::cerr << "경고: 에셋 창고에 모델이 없습니다 -> " << modelName << std::endl;
                 }

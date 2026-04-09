@@ -58,6 +58,12 @@ void SimpleRenderSystem::renderGameObjects(VkCommandBuffer commandBuffer, entt::
 
     auto view = registry.view<TransformComponent, ModelComponent>();
     for (auto entity : view) {
+
+        if (registry.any_of<CullingComponent>(entity)) {
+        auto& cull = registry.get<CullingComponent>(entity);
+        if (!cull.isVisible) continue; // ★ 안 보이면 Draw Call 생략! GPU 해방!
+        }
+
         auto &transform = view.get<TransformComponent>(entity);
         auto &modelComp = view.get<ModelComponent>(entity);
 

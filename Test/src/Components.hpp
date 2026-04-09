@@ -61,3 +61,14 @@ struct PointLightComponent {
     glm::vec3 color{1.0f, 1.0f, 1.0f}; // 빛의 색상
     float intensity{10.0f};            // 빛의 밝기 (PBR에서는 수백~수천 단위도 씁니다)
 };
+
+// 모델의 크기를 감싸는 가상의 구체
+struct BoundingSphereComponent {
+    float radius = 1.0f; // 기본 반지름
+    glm::vec3 offset = glm::vec3(0.0f); // 모델 중심점 보정
+};
+
+// 컬링 결과 저장 (매 프레임 스레드들이 이 값을 true/false로 바꿉니다)
+struct CullingComponent {
+    bool isVisible = true;
+};

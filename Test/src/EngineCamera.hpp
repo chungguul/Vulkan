@@ -2,6 +2,12 @@
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <glm/glm.hpp>
+#include <array>
+
+struct FrustumPlane {
+    glm::vec3 normal;
+    float distance;
+};
 
 class EngineCamera {
 public:
@@ -14,6 +20,8 @@ public:
     const glm::mat4& getView() const { return viewMatrix; }
     //카메라의 위치와 회전각(Pitch, Yaw, Roll) 기반으로 뷰 행렬 계산
     void setViewYXZ(glm::vec3 position, glm::vec3 rotation);
+
+    std::array<FrustumPlane, 6> getFrustumPlanes() const;
 
 private:
     glm::mat4 projectionMatrix{1.f};

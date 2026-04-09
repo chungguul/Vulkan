@@ -69,6 +69,9 @@ EngineModel::EngineModel(EngineDevice& device, const EngineModel::Builder& build
     
     createVertexBuffers(builder.vertices);
     createIndexBuffers(builder.indices);
+
+    boundingCenter = builder.boundingCenter;
+    boundingRadius = builder.boundingRadius;
 }
 
 VkVertexInputBindingDescription Vertex::getBindingDescription() {
@@ -268,4 +271,27 @@ void EngineModel::Builder::extractBoneWeightForVertices(aiMesh* mesh, const aiSc
             setVertexBoneData(vertices[vertexId], boneID, weight);
         }
     }
+}
+
+void EngineModel::Builder::calculateBoundingSphere() {
+    if (vertices.empty()) return;
+
+    // 1. 최소/최대 좌표(AABB)를 구해서 정확한 중심점(Center)을 찾습니다.
+    glm::vec3 minAABB = vertices[0].position;
+    glm::vec3 maxAABB = vertices[0].position;
+
+    for (const auto& v : vertices) {
+        minAABB = glm::min(minAABB, v.position);
+        maxAABB = glm::max(maxAABB, v.position);
+    }
+    boundingCenter = (minAABB + maxAABB) / 2.0f;
+
+    // 2. 중심점에서 가장 멀리 떨어진 정점까지의 거리를 구해서 반지름(Radius)으로 삼습니다.
+    float maxDistSq = 0.0f;
+    for (const auto& v : vertices) {
+        glm::vec3 diff = v.position - boundingCenter;
+        float distSq = glm::dot(diff, diff); // 길이의 제곱
+        maxDistSq = std::max(maxDistSq, distSq);
+    }
+    boundingRadius = std::sqrt(maxDistSq);
 }
