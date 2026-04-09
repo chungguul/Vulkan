@@ -20,6 +20,8 @@
 #include "SimpleRenderSystem.hpp"
 #include "Components.hpp"
 
+#include "EngineRenderer.hpp"
+
 #include <nlohmann/json.hpp>
 
 #include <entt/entt.hpp>
@@ -96,7 +98,6 @@ private:
     // --- 1. 코어 시스템 ---
     EngineWindow window{WIDTH, HEIGHT, "Vulkan Engine"};
     EngineDevice device{window};
-    EngineSwapChain swapChain{device, WIDTH, HEIGHT};
 
     // --- 2. 렌더링 서브시스템 ---
     std::unique_ptr<EngineDescriptorManager> descriptorManager;
@@ -132,7 +133,7 @@ private:
     EngineCamera camera;
     KeyboardMovementController cameraController;
 
-    // 렌더링 커맨드 버퍼
-    VkCommandBuffer commandBuffer;
+    std::unique_ptr<EngineRenderer> engineRenderer;
+
 };
 

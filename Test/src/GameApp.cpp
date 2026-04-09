@@ -13,17 +13,11 @@ using json = nlohmann::json;
 GameApp::GameApp() {
     std::cout << "엔진 코어 초기화 중..." << std::endl;
     
+    engineRenderer = std::make_unique<EngineRenderer>(window, device);
+
     // 1-1. 물리 엔진 초기화
     physicsEngine.init();
     physicsEngine.createFloor();
-
-    // 1-2. 커맨드 버퍼 할당
-    VkCommandBufferAllocateInfo allocInfo{};
-    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    allocInfo.commandPool = device.getCommandPool();
-    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    allocInfo.commandBufferCount = 1;
-    vkAllocateCommandBuffers(device.getDevice(), &allocInfo, &commandBuffer);
 
     // 1-3. UBO 버퍼 생성 및 매핑
     uboBufferMain = std::make_unique<EngineBuffer>(device, sizeof(GlobalUbo), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
@@ -176,7 +170,7 @@ void GameApp::setupDescriptorsAndPipelines() {
         .build(waterSet);
 
     // 파이프라인 생성!
-    simpleRenderSystem = std::make_unique<SimpleRenderSystem>(device, swapChain.getRenderPass(), globalSetLayout);
+    simpleRenderSystem = std::make_unique<SimpleRenderSystem>(device, engineRenderer->getSwapChainRenderPass(), globalSetLayout);
 
     VkPushConstantRange pushConstantRange{};
     pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
@@ -194,14 +188,14 @@ void GameApp::setupDescriptorsAndPipelines() {
 
     PipelineConfigInfo waterPipelineConfig{};
     EnginePipeline::defaultPipelineConfigInfo(waterPipelineConfig, WIDTH, HEIGHT);
-    waterPipelineConfig.renderPass = swapChain.getRenderPass();
+    waterPipelineConfig.renderPass = engineRenderer->getSwapChainRenderPass();
     waterPipelineConfig.descriptorSetLayouts = {waterSetLayout};
     waterPipelineConfig.pushConstantRanges = {pushConstantRange};
     waterPipelineConfig.rasterizationInfo.cullMode = VK_CULL_MODE_NONE; 
     waterPipeline = std::make_unique<EnginePipeline>(device, "../Test/shaders/water.vert.spv", "../Test/shaders/water.frag.spv", waterPipelineConfig);
 
     std::vector<VkBuffer> uboBufferArray = {uboBufferMain->getBuffer()};
-    engineSkybox = std::make_unique<EngineSkybox>(device, swapChain.getRenderPass(), WIDTH, HEIGHT, *skyboxCubemap, globalSetLayout, uboBufferArray, sizeof(GlobalUbo));
+    engineSkybox = std::make_unique<EngineSkybox>(device, engineRenderer->getSwapChainRenderPass(), WIDTH, HEIGHT, *skyboxCubemap, globalSetLayout, uboBufferArray, sizeof(GlobalUbo));
 }
 
 // ==========================================================
@@ -215,7 +209,9 @@ void GameApp::run() {
     while (!window.shouldClose()) {
         window.pollEvents();
 
-        // [1] 물리 및 로직 업데이트
+        // =======================================================
+        // [1] 물리 및 로직 업데이트 (기존과 100% 동일)
+        // =======================================================
         auto newTime = std::chrono::high_resolution_clock::now();
         float frameTime = std::chrono::duration<float, std::chrono::seconds::period>(newTime - currentTime).count();
         currentTime = newTime;
@@ -235,12 +231,12 @@ void GameApp::run() {
         float pitch = viewTrans.rotation.x;
         glm::vec3 lookDirection{-sin(yaw) * cos(pitch), sin(pitch), -cos(yaw) * cos(pitch)};
         camera.setViewTarget(viewTrans.translation, viewTrans.translation + lookDirection);
-        camera.setPerspectiveProjection(glm::radians(50.f), swapChain.getWidth() / (float)swapChain.getHeight(), 0.1f, 1000.f);
+        camera.setPerspectiveProjection(glm::radians(50.f), engineRenderer->getAspectRatio(), 0.1f, 1000.f);
 
         animator->playAnimation(idleAnimation.get());
         animator->updateAnimation(frameTime);
 
-        // [2] UBO 갱신 (뼈대 연산 포함)
+        // [2] UBO 갱신 (뼈대 및 조명 연산)
         GlobalUbo uboMain{};
         uboMain.view = camera.getView();
         uboMain.proj = camera.getProjection();
@@ -291,122 +287,93 @@ void GameApp::run() {
         uboBufferRefraction->writeToBuffer(&uboRefraction);
         uboBufferReflection->writeToBuffer(&uboReflection);
 
-        // [3] 안전한 렌더링 시작 (동기화)
-        VkFence inFlightFence = swapChain.getInFlightFence();
-        vkWaitForFences(device.getDevice(), 1, &inFlightFence, VK_TRUE, UINT64_MAX);
-        vkResetFences(device.getDevice(), 1, &inFlightFence);
+        // =======================================================
+        // [3] 대망의 렌더링 시작! (복잡한 펜스, 이미지 획득이 증발했습니다!)
+        // =======================================================
+        if (auto commandBuffer = engineRenderer->beginFrame()) {
+            
+            // --- 패스 1: 그림자 렌더링 (Shadow) ---
+            VkRenderPassBeginInfo shadowPassInfo{};
+            shadowPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+            shadowPassInfo.renderPass = engineShadow->getRenderPass();
+            shadowPassInfo.framebuffer = engineShadow->getFramebuffer();
+            shadowPassInfo.renderArea.extent = {engineShadow->getWidth(), engineShadow->getHeight()};
+            VkClearValue depthClear{}; depthClear.depthStencil = {1.0f, 0};
+            shadowPassInfo.clearValueCount = 1; shadowPassInfo.pClearValues = &depthClear;
 
-        uint32_t imageIndex;
-        VkSemaphore imageAvailable = swapChain.getImageAvailableSemaphore();
-        vkAcquireNextImageKHR(device.getDevice(), swapChain.getSwapChain(), UINT64_MAX, imageAvailable, VK_NULL_HANDLE, &imageIndex);
+            vkCmdBeginRenderPass(commandBuffer, &shadowPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+            vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPipeline->getPipeline());
+            
+            auto modelView = registry.view<TransformComponent, ModelComponent>();
+            for (auto entity : modelView) {
+                auto &transform = modelView.get<TransformComponent>(entity);
+                auto &modelComp = modelView.get<ModelComponent>(entity);
+                SimplePushConstantData push{}; push.modelMatrix = transform.mat4();
+                vkCmdPushConstants(commandBuffer, shadowPipeline->getPipelineLayout(), VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(SimplePushConstantData), &push);
+                vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPipeline->getPipelineLayout(), 0, 1, &modelComp.mainSet, 0, nullptr);
+                modelComp.model->bind(commandBuffer); modelComp.model->draw(commandBuffer);
+            }
+            vkCmdEndRenderPass(commandBuffer);
 
-        vkResetCommandBuffer(commandBuffer, 0);
-        VkCommandBufferBeginInfo beginInfo{};
-        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        vkBeginCommandBuffer(commandBuffer, &beginInfo);
+            // --- 패스 1.5: 반사 렌더링 (Reflection) ---
+            VkRenderPassBeginInfo reflectionPassInfo{};
+            reflectionPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+            reflectionPassInfo.renderPass = engineWater->getReflectionRenderPass();
+            reflectionPassInfo.framebuffer = engineWater->getReflectionFramebuffer();
+            reflectionPassInfo.renderArea.extent = {engineWater->getWidth(), engineWater->getHeight()};
+            VkClearValue refColor = {{{0.5f, 0.7f, 0.9f, 1.0f}}};
+            std::vector<VkClearValue> refClearValues = {refColor, depthClear};
+            reflectionPassInfo.clearValueCount = static_cast<uint32_t>(refClearValues.size());
+            reflectionPassInfo.pClearValues = refClearValues.data();
 
-        // --- 패스 1: 그림자 ---
-        VkRenderPassBeginInfo shadowPassInfo{};
-        shadowPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-        shadowPassInfo.renderPass = engineShadow->getRenderPass();
-        shadowPassInfo.framebuffer = engineShadow->getFramebuffer();
-        shadowPassInfo.renderArea.extent = {engineShadow->getWidth(), engineShadow->getHeight()};
-        VkClearValue depthClear{}; depthClear.depthStencil = {1.0f, 0};
-        shadowPassInfo.clearValueCount = 1; shadowPassInfo.pClearValues = &depthClear;
+            vkCmdBeginRenderPass(commandBuffer, &reflectionPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+            simpleRenderSystem->renderGameObjects(commandBuffer, registry, RenderPassType::REFLECTION);
+            engineSkybox->render(commandBuffer, 0); 
+            vkCmdEndRenderPass(commandBuffer);
 
-        vkCmdBeginRenderPass(commandBuffer, &shadowPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPipeline->getPipeline());
-        
-        auto modelView = registry.view<TransformComponent, ModelComponent>();
-        for (auto entity : modelView) {
-            auto &transform = modelView.get<TransformComponent>(entity);
-            auto &modelComp = modelView.get<ModelComponent>(entity);
-            SimplePushConstantData push{}; push.modelMatrix = transform.mat4();
-            vkCmdPushConstants(commandBuffer, shadowPipeline->getPipelineLayout(), VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(SimplePushConstantData), &push);
-            vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPipeline->getPipelineLayout(), 0, 1, &modelComp.mainSet, 0, nullptr);
-            modelComp.model->bind(commandBuffer); modelComp.model->draw(commandBuffer);
+            // --- 패스 1.6: 굴절 렌더링 (Refraction) ---
+            VkRenderPassBeginInfo refractionPassInfo = reflectionPassInfo;
+            refractionPassInfo.renderPass = engineWater->getRefractionRenderPass();
+            refractionPassInfo.framebuffer = engineWater->getRefractionFramebuffer();
+
+            vkCmdBeginRenderPass(commandBuffer, &refractionPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+            simpleRenderSystem->renderGameObjects(commandBuffer, registry, RenderPassType::REFRACTION);
+            vkCmdEndRenderPass(commandBuffer);
+
+            // =======================================================
+            // --- 패스 2: 메인 화면 렌더링 (다이어트 핵심 구간!) ---
+            // =======================================================
+            // ★ 그 많던 스왑체인 버퍼 클리어 및 세팅이 단 한 줄로 압축되었습니다!
+            engineRenderer->beginSwapChainRenderPass(commandBuffer);
+            
+            // 1. 코로네 & 바닥
+            simpleRenderSystem->renderGameObjects(commandBuffer, registry);
+            
+            // 2. 스카이박스
+            engineSkybox->render(commandBuffer, 0);
+            
+            // 3. 물
+            vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, waterPipeline->getPipeline());
+            SimplePushConstantData waterPush{}; 
+            waterPush.modelMatrix = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, waterHeight, 0.0f));
+            vkCmdPushConstants(commandBuffer, waterPipeline->getPipelineLayout(), VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(SimplePushConstantData), &waterPush);
+            vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, waterPipeline->getPipelineLayout(), 0, 1, &waterSet, 0, nullptr);
+            
+            models["FloorModel"]->bind(commandBuffer); 
+            models["FloorModel"]->draw(commandBuffer);
+
+            // ★ 메인 무대 닫기!
+            engineRenderer->endSwapChainRenderPass(commandBuffer);
+
+            // =======================================================
+            // [4] 화면 출력 제출 (이 한 줄이 QueueSubmit, Present 등을 다 해줍니다)
+            // =======================================================
+            engineRenderer->endFrame();
         }
-        vkCmdEndRenderPass(commandBuffer);
-
-        // --- 패스 1.5: 반사 ---
-        VkRenderPassBeginInfo reflectionPassInfo{};
-        reflectionPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-        reflectionPassInfo.renderPass = engineWater->getReflectionRenderPass();
-        reflectionPassInfo.framebuffer = engineWater->getReflectionFramebuffer();
-        reflectionPassInfo.renderArea.extent = {engineWater->getWidth(), engineWater->getHeight()};
-        VkClearValue refColor = {{{0.5f, 0.7f, 0.9f, 1.0f}}};
-        std::vector<VkClearValue> refClearValues = {refColor, depthClear};
-        reflectionPassInfo.clearValueCount = static_cast<uint32_t>(refClearValues.size());
-        reflectionPassInfo.pClearValues = refClearValues.data();
-
-        vkCmdBeginRenderPass(commandBuffer, &reflectionPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-        simpleRenderSystem->renderGameObjects(commandBuffer, registry, RenderPassType::REFLECTION);
-        // 하늘도 거울(물)에 비쳐야 하니까 스카이박스도 렌더링!
-        engineSkybox->render(commandBuffer, 0); 
-        
-        vkCmdEndRenderPass(commandBuffer);
-
-        // --- 패스 1.6: 굴절 (Refraction) ---
-        VkRenderPassBeginInfo refractionPassInfo = reflectionPassInfo;
-        refractionPassInfo.renderPass = engineWater->getRefractionRenderPass();
-        refractionPassInfo.framebuffer = engineWater->getRefractionFramebuffer();
-
-        vkCmdBeginRenderPass(commandBuffer, &refractionPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-        
-        // ★ 수정: 굴절 패스로 코로네와 바닥 그리기!
-        simpleRenderSystem->renderGameObjects(commandBuffer, registry, RenderPassType::REFRACTION);
-        
-        vkCmdEndRenderPass(commandBuffer);
-
-        // --- 패스 2: 메인 화면 ---
-        VkRenderPassBeginInfo renderPassInfo{};
-        renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-        renderPassInfo.renderPass = swapChain.getRenderPass();
-        renderPassInfo.framebuffer = swapChain.getFrameBuffer(imageIndex);
-        renderPassInfo.renderArea.extent = {(uint32_t)WIDTH, (uint32_t)HEIGHT};
-        VkClearValue clearColor = {{{0.02f, 0.05f, 0.1f, 1.0f}}};
-        std::vector<VkClearValue> clearValues = {clearColor, depthClear};
-        renderPassInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
-        renderPassInfo.pClearValues = clearValues.data();
-        
-        vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-        
-        // 1. 코로네 & 바닥 (SimpleRenderSystem)
-        simpleRenderSystem->renderGameObjects(commandBuffer, registry);
-        // 2. 스카이박스
-        engineSkybox->render(commandBuffer, 0);
-        // 3. 물
-        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, waterPipeline->getPipeline());
-        SimplePushConstantData waterPush{}; 
-        waterPush.modelMatrix = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, waterHeight, 0.0f));
-        vkCmdPushConstants(commandBuffer, waterPipeline->getPipelineLayout(), VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(SimplePushConstantData), &waterPush);
-        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, waterPipeline->getPipelineLayout(), 0, 1, &waterSet, 0, nullptr);
-        
-        // ★ 수정 5: 하드코딩 변수 대신 창고에서 꺼내서 바인딩합니다.
-        models["FloorModel"]->bind(commandBuffer); 
-        models["FloorModel"]->draw(commandBuffer);
-
-        vkCmdEndRenderPass(commandBuffer);
-        vkEndCommandBuffer(commandBuffer);
-
-        // [4] 화면 출력 제출 (동기화)
-        VkSubmitInfo submitInfo{}; submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        VkSemaphore waitSemaphores[] = {imageAvailable}; VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
-        submitInfo.waitSemaphoreCount = 1; submitInfo.pWaitSemaphores = waitSemaphores; submitInfo.pWaitDstStageMask = waitStages;
-        submitInfo.commandBufferCount = 1; submitInfo.pCommandBuffers = &commandBuffer;
-        VkSemaphore signalSemaphores[] = {swapChain.getRenderFinishedSemaphore()};
-        submitInfo.signalSemaphoreCount = 1; submitInfo.pSignalSemaphores = signalSemaphores;
-
-        vkQueueSubmit(device.getGraphicsQueue(), 1, &submitInfo, inFlightFence);
-
-        VkPresentInfoKHR presentInfo{}; presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-        presentInfo.waitSemaphoreCount = 1; presentInfo.pWaitSemaphores = signalSemaphores;
-        VkSwapchainKHR swapchains[] = {swapChain.getSwapChain()};
-        presentInfo.swapchainCount = 1; presentInfo.pSwapchains = swapchains; presentInfo.pImageIndices = &imageIndex;
-
-        vkQueuePresentKHR(device.getPresentQueue(), &presentInfo);
     }
 }
+
+
 
 void GameApp::loadTexture(const std::string& name, const std::string& filepath) {
     // 텍스처를 동적 생성해서 창고(Map)에 'name'이라는 이름표를 붙여 보관합니다.
@@ -459,7 +426,7 @@ void GameApp::loadModel(const std::string& name, const std::string& filepath) {
                 builder.vertices.push_back({{x, y, z}, {1.0f, 1.0f, 1.0f}, {x, y, z}, {U, V}});
             }
         }
-for (int i = 0; i < stacks; ++i) {
+    for (int i = 0; i < stacks; ++i) {
             for (int j = 0; j < sectors; ++j) {
                 int first = (i * (sectors + 1)) + j;
                 int second = first + sectors + 1;

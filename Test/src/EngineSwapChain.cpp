@@ -230,3 +230,50 @@ void EngineSwapChain::createDepthResources() {
         throw std::runtime_error("실패: 깊이 이미지 뷰 생성 오류!");
     }
 }
+
+VkResult EngineSwapChain::acquireNextImage(uint32_t *imageIndex) {
+    vkWaitForFences(device.getDevice(), 1, &inFlightFence, VK_TRUE, std::numeric_limits<uint64_t>::max());
+    vkResetFences(device.getDevice(), 1, &inFlightFence);
+
+    return vkAcquireNextImageKHR(
+        device.getDevice(),
+        swapchain, // ★ 수정: 소문자 swapchain
+        std::numeric_limits<uint64_t>::max(),
+        imageAvailableSemaphore,
+        VK_NULL_HANDLE,
+        imageIndex);
+}
+
+VkResult EngineSwapChain::submitCommandBuffers(const VkCommandBuffer *buffers, uint32_t *imageIndex) {
+    VkSubmitInfo submitInfo = {};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+
+    VkSemaphore waitSemaphores[] = {imageAvailableSemaphore};
+    VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
+    submitInfo.waitSemaphoreCount = 1;
+    submitInfo.pWaitSemaphores = waitSemaphores;
+    submitInfo.pWaitDstStageMask = waitStages;
+
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = buffers;
+
+    VkSemaphore signalSemaphores[] = {renderFinishedSemaphore};
+    submitInfo.signalSemaphoreCount = 1;
+    submitInfo.pSignalSemaphores = signalSemaphores;
+
+    if (vkQueueSubmit(device.getGraphicsQueue(), 1, &submitInfo, inFlightFence) != VK_SUCCESS) {
+        throw std::runtime_error("드로우 커맨드 버퍼 제출 실패!");
+    }
+
+    VkPresentInfoKHR presentInfo = {};
+    presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+    presentInfo.waitSemaphoreCount = 1;
+    presentInfo.pWaitSemaphores = signalSemaphores;
+
+    VkSwapchainKHR swapchainsArray[] = {swapchain}; // ★ 수정: 소문자 swapchain
+    presentInfo.swapchainCount = 1;
+    presentInfo.pSwapchains = swapchainsArray;
+    presentInfo.pImageIndices = imageIndex;
+
+    return vkQueuePresentKHR(device.getPresentQueue(), &presentInfo);
+}

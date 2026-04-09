@@ -20,6 +20,17 @@ public:
     VkSemaphore getImageAvailableSemaphore() { return imageAvailableSemaphore; }
     VkSemaphore getRenderFinishedSemaphore() { return renderFinishedSemaphore; }
     VkFence getInFlightFence() { return inFlightFence; }
+
+    VkExtent2D getSwapChainExtent() { 
+        return { static_cast<uint32_t>(windowWidth), static_cast<uint32_t>(windowHeight) }; 
+    }
+    float extentAspectRatio() { 
+        return static_cast<float>(windowWidth) / static_cast<float>(windowHeight); 
+    }
+
+    // 렌더 루프를 캡슐화할 함수 선언
+    VkResult acquireNextImage(uint32_t *imageIndex);
+    VkResult submitCommandBuffers(const VkCommandBuffer *buffers, uint32_t *imageIndex); 
     
     int getWidth() { return windowWidth; }
     int getHeight() { return windowHeight; }
