@@ -86,15 +86,27 @@ struct AnimatorComponent {
     }
 };
 
-//물 컴포넌트 (이 명찰이 붙어있는 바닥은 알아서 찰랑이는 물로 렌더링 됨)
+//액체 컴포넌트 (이 명찰이 붙어있는 바닥은 알아서 찰랑이는 물로 렌더링 됨)
 struct WaterComponent {
-    float height = 0.5f;       // 물의 높이
-    float waveSpeed = 0.05f;   // 물결 속도
-    // 나중에 dudv, normal 텍스처 참조도 이 안에 넣을 수 있습니다.
+    float height = 0.5f;       
+    float waveSpeed = 0.05f;   
+    
+    // ★ 액체마다 다른 텍스처를 쓸 수 있도록 이름 저장!
+    std::string dudvTexture = "WaterDUDV";
+    std::string normalTexture = "WaterNormal";
+
+    // ★ 글로벌하게 쓰던 waterSet을 이제 액체 컴포넌트가 각자 가집니다!
+    VkDescriptorSet waterSet{VK_NULL_HANDLE};
 };
 
 // 렌더링 시 사용할 텍스처 이름(머티리얼)을 담는 부품
 struct MaterialComponent {
     std::string albedoTexture; // 기본 색상 텍스처 이름 (예: "KoroneMap", "Wood")
     // 나중에 normalTexture, emissionTexture 등으로 무한히 확장 가능합니다!
+};
+
+struct SimplePushConstantData {
+    glm::mat4 modelMatrix{1.0f};
+    float roughness{0.8f};
+    float metallic{0.0f};
 };

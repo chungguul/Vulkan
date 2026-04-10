@@ -21,6 +21,9 @@
 #include "Components.hpp"
 #include "EngineThreadPool.hpp"
 #include "AssetManager.hpp"
+#include "EngineParticleSystem.hpp"
+#include "EngineShadowSystem.hpp"
+#include "EngineWaterSystem.hpp"
 
 #include "EngineRenderer.hpp"
 
@@ -35,12 +38,6 @@ const int MAX_POINT_LIGHTS = 10;
 
 struct PointLight {
     alignas(16) glm::vec4 position;
-    alignas(16) glm::vec4 color;
-};
-
-struct Particle {
-    alignas(16) glm::vec3 position;
-    alignas(16) glm::vec3 velocity;
     alignas(16) glm::vec4 color;
 };
 
@@ -62,12 +59,6 @@ struct GlobalUbo {
     int numPointLights;
 };
 
-// 푸시 상수는 SimpleRenderSystem과 공유합니다.
-struct SimplePushConstantData {
-    glm::mat4 modelMatrix{1.0f};
-    float roughness{0.8f};
-    float metallic{0.0f};
-};
 
 class GameApp {
 public:
@@ -79,10 +70,6 @@ public:
 
     GameApp(const GameApp &) = delete;
     GameApp &operator=(const GameApp &) = delete;
-    
-    //외부에서 엔티티를 생성할 수 있는 API
-    void spawnPlayer(const std::string& modelName, glm::vec3 position);
-    void spawnFloor(glm::vec3 position);
 
     void loadSceneFromJSON(const std::string& filepath);
 
@@ -103,8 +90,9 @@ private:
     std::unique_ptr<SimpleRenderSystem> simpleRenderSystem;
 
     // 추가 파이프라인 (그림자, 물 전용)
-    std::unique_ptr<EnginePipeline> shadowPipeline;
-    std::unique_ptr<EnginePipeline> waterPipeline;
+    std::unique_ptr<EngineShadowSystem> shadowSystem;
+    std::unique_ptr<EngineWaterSystem> waterRenderSystem;
+
     VkDescriptorSetLayout globalSetLayout;
     VkDescriptorSetLayout waterSetLayout;
     VkDescriptorSet waterSet;
@@ -114,11 +102,6 @@ private:
     std::unique_ptr<EngineBuffer> uboBufferMain;
     std::unique_ptr<EngineBuffer> uboBufferReflection;
     std::unique_ptr<EngineBuffer> uboBufferRefraction;
-
-    //애니메이션 부분은 추후 하드코딩 없애는 방식으로 개선 예정
-    std::unique_ptr<EngineAnimation> idleAnimation;
-    std::unique_ptr<EngineAnimation> walkAnimation;
-    std::unique_ptr<EngineAnimator> animator;
 
     std::unique_ptr<AssetManager> assetManager;
 
@@ -130,18 +113,7 @@ private:
 
     std::unique_ptr<EngineRenderer> engineRenderer;
 
-
-    //particle system
-    static constexpr int PARTICLE_COUNT = 10000; // 1만 개!
-
-    std::unique_ptr<EngineBuffer> particleSSBO;
-    
-    VkDescriptorSetLayout computeSetLayout;
-    VkDescriptorSet computeDescriptorSet;
-    VkPipelineLayout computePipelineLayout;
-    
-    std::unique_ptr<EnginePipeline> computePipeline;
-    std::unique_ptr<EnginePipeline> particlePipeline;
+    std::unique_ptr<EngineParticleSystem> particleSystem;
 
     std::unique_ptr<EngineThreadPool> threadPool;
 };

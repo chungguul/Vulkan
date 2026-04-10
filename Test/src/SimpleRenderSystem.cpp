@@ -2,13 +2,6 @@
 #include <stdexcept>
 #include <iostream>
 
-// push constant 구조체 (Main_Legacy에서 가져옴)
-struct SimplePushConstantData {
-    glm::mat4 modelMatrix{1.0f};
-    float roughness{0.8f};
-    float metallic{0.0f};
-};
-
 SimpleRenderSystem::SimpleRenderSystem(EngineDevice& device, VkRenderPass renderPass, VkDescriptorSetLayout globalSetLayout)
     : engineDevice{device} {
     createPipelineLayout(globalSetLayout);
@@ -56,7 +49,8 @@ void SimpleRenderSystem::createPipeline(VkRenderPass renderPass) {
 void SimpleRenderSystem::renderGameObjects(VkCommandBuffer commandBuffer, entt::registry& registry, RenderPassType passType) {
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, enginePipeline->getPipeline());
 
-    auto view = registry.view<TransformComponent, ModelComponent>();
+    //auto view = registry.view<TransformComponent, ModelComponent>();
+    auto view = registry.view<TransformComponent, ModelComponent, MaterialComponent>(entt::exclude<WaterComponent>);
     for (auto entity : view) {
 
         if (registry.any_of<CullingComponent>(entity)) {

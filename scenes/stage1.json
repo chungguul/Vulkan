@@ -1,5 +1,8 @@
 {
   "scene_name": "AI_Generated_TechDemo",
+  "environment": {
+    "skybox": "../textures/sunflowers_puresky_4k.hdr"
+  },
   "required_assets": {
     "models": [
       { "name": "FloorModel", "path": "Primitive:Plane" }, 
@@ -9,7 +12,11 @@
     ],
     "textures": [
       { "name": "Wood", "path": "../textures/sandy_gravel_02_diff_2k.jpg" },
-      { "name": "KoroneMap", "path": "../textures/Korone_Map.png" }
+      { "name": "KoroneMap", "path": "../textures/Korone_Map.png" },
+      { "name": "WaterDUDV", "path": "../textures/waterDUDV.png" },
+      { "name": "WaterNormal", "path": "../textures/waterNormal.jpg" },
+      { "name": "LavaDUDV", "path": "../textures/waterDUDV.png" },
+      { "name": "LavaNormal", "path": "../textures/waterNormal.jpg" }
     ]
   },
   "entities": [
@@ -18,6 +25,30 @@
       "model": "FloorModel",
       "texture": "Wood",
       "transform": { "position": [0.0, 0.0, 0.0], "scale": [1.0, 1.0, 1.0] }
+    },
+    {
+      "tag": "Water",
+      "model": "FloorModel",
+      "texture": "Wood",
+      "transform": { "position": [15.0, 0.0, 0.0], "scale": [0.5, 1.0, 0.5] },
+      "water_properties": {
+        "height": 0.5,
+        "waveSpeed": 0.05,
+        "dudvTexture": "WaterDUDV",
+        "normalTexture": "WaterNormal"
+      }
+    },
+    {
+      "tag": "Water",
+      "model": "FloorModel",
+      "texture": "Wood",
+      "transform": { "position": [-15.0, 0.0, 0.0], "scale": [0.5, 1.0, 0.5] },
+      "water_properties": {
+        "height": 0.8,
+        "waveSpeed": 0.15,
+        "dudvTexture": "LavaDUDV",
+        "normalTexture": "LavaNormal"
+      }
     },
     {
       "tag": "Player",
@@ -36,6 +67,14 @@
       "model": "MySphere",
       "texture": "Wood",
       "transform": { "position": [-4.0, 4.0, -2.0], "scale": [3.0, 3.0, 3.0] }
+    },
+    {
+      "tag": "Light",
+      "transform": { "position": [0.0, 10.0, 0.0], "scale": [1.0, 1.0, 1.0] },
+      "light": {
+        "color": [1.0, 0.9, 0.8],
+        "intensity": 500.0
+      }
     },
     {
       "tag": "Camera",
