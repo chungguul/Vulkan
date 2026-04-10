@@ -92,3 +92,9 @@ struct WaterComponent {
     float waveSpeed = 0.05f;   // 물결 속도
     // 나중에 dudv, normal 텍스처 참조도 이 안에 넣을 수 있습니다.
 };
+
+// 렌더링 시 사용할 텍스처 이름(머티리얼)을 담는 부품
+struct MaterialComponent {
+    std::string albedoTexture; // 기본 색상 텍스처 이름 (예: "KoroneMap", "Wood")
+    // 나중에 normalTexture, emissionTexture 등으로 무한히 확장 가능합니다!
+};

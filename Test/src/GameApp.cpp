@@ -91,100 +91,55 @@ void GameApp::setupDescriptorsAndPipelines() {
     // 이미지 정보 묶기
     auto makeImgInfo = [](VkImageLayout layout, VkImageView view, VkSampler sampler) {
         VkDescriptorImageInfo info{}; info.imageLayout = layout; info.imageView = view; info.sampler = sampler; return info;
-    };
-
-    auto koroneTex = assetManager->getTexture("KoroneMap");
-    auto woodTex   = assetManager->getTexture("Wood");
-    auto dudvTex   = assetManager->getTexture("WaterDUDV");
-    auto normalTex = assetManager->getTexture("WaterNormal");
-
-    auto koroneImageInfo = makeImgInfo(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, koroneTex->getImageView(), koroneTex->getSampler());
-    auto floorImageInfo  = makeImgInfo(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, woodTex->getImageView(), woodTex->getSampler());
-    
+    };    
     auto shadowImageInfo = makeImgInfo(VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, engineShadow->getImageView(), engineShadow->getSampler());
     auto skyboxInfo      = makeImgInfo(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, skyboxCubemap->getImageView(), skyboxCubemap->getSampler());
     auto reflectionInfo  = makeImgInfo(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, engineWater->getReflectionImageView(), engineWater->getSampler());
     auto refractionInfo  = makeImgInfo(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, engineWater->getRefractionImageView(), engineWater->getSampler());
-    
-    // 코어 에셋 창고에서 꺼내기
-    auto dudvInfo   = makeImgInfo(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, dudvTex->getImageView(), dudvTex->getSampler());
-    auto normalInfo = makeImgInfo(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, normalTex->getImageView(), normalTex->getSampler());    
-    
+        
     // 버퍼 정보
     auto uboInfoMain = uboBufferMain->descriptorInfo();
     auto uboInfoReflection = uboBufferReflection->descriptorInfo();
     auto uboInfoRefraction = uboBufferRefraction->descriptorInfo();
 
-    // ECS에 저장된 모델 컴포넌트 꺼내오기
-    auto playerView = registry.view<PlayerTag, ModelComponent>();
-    auto &kComp = registry.get<ModelComponent>(playerView.front());
-
-    auto floorView = registry.view<FloorTag, ModelComponent>();
-    auto &fComp = registry.get<ModelComponent>(floorView.front());
-
     // 디스크립터 세트 조립
-    auto propView = registry.view<PropTag, ModelComponent>();
-    for (auto entity : propView) {
-        auto &pComp = propView.get<ModelComponent>(entity);
-        
+    auto renderableView = registry.view<ModelComponent, MaterialComponent>();
+    for (auto entity : renderableView) {
+        auto &modelComp = renderableView.get<ModelComponent>(entity);
+        auto &matComp = renderableView.get<MaterialComponent>(entity);
+
+        // 1. 컴포넌트에 적힌 이름표를 보고 AssetManager에서 텍스처를 꺼내옵니다.
+        auto albedoTex = assetManager->getTexture(matComp.albedoTexture);
+        auto albedoInfo = makeImgInfo(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, albedoTex->getImageView(), albedoTex->getSampler());
+
+        // 2. Main 디스크립터 조립
         EngineDescriptorManager::Builder(*descriptorManager)
             .bindBuffer(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &uboInfoMain)
-            .bindImage(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &floorImageInfo) // 임시로 나무 텍스처 사용
+            .bindImage(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &albedoInfo) // ★ 동적 할당!
             .bindImage(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &shadowImageInfo)
             .bindImage(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &skyboxInfo)
-            .build(pComp.mainSet);
+            .build(modelComp.mainSet);
 
+        // 3. 반사(Reflection) 디스크립터 조립
         EngineDescriptorManager::Builder(*descriptorManager)
             .bindBuffer(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &uboInfoReflection)
-            .bindImage(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &floorImageInfo)
+            .bindImage(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &albedoInfo)
             .bindImage(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &shadowImageInfo)
-            .build(pComp.reflectionSet);
+            .build(modelComp.reflectionSet);
 
+        // 4. 굴절(Refraction) 디스크립터 조립
         EngineDescriptorManager::Builder(*descriptorManager)
             .bindBuffer(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &uboInfoRefraction)
-            .bindImage(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &floorImageInfo)
+            .bindImage(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &albedoInfo)
             .bindImage(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &shadowImageInfo)
-            .build(pComp.refractionSet);
+            .build(modelComp.refractionSet);
     }
 
+    auto dudvTex   = assetManager->getTexture("WaterDUDV");
+    auto normalTex = assetManager->getTexture("WaterNormal");
 
-    EngineDescriptorManager::Builder(*descriptorManager)
-        .bindBuffer(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &uboInfoMain)
-        .bindImage(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &koroneImageInfo)
-        .bindImage(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &shadowImageInfo)
-        .bindImage(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &skyboxInfo)
-        .build(kComp.mainSet);
-
-    EngineDescriptorManager::Builder(*descriptorManager)
-        .bindBuffer(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &uboInfoReflection)
-        .bindImage(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &koroneImageInfo)
-        .bindImage(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &shadowImageInfo)
-        .build(kComp.reflectionSet);
-
-    EngineDescriptorManager::Builder(*descriptorManager)
-        .bindBuffer(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &uboInfoRefraction)
-        .bindImage(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &koroneImageInfo)
-        .bindImage(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &shadowImageInfo)
-        .build(kComp.refractionSet);
-
-    EngineDescriptorManager::Builder(*descriptorManager)
-        .bindBuffer(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &uboInfoMain)
-        .bindImage(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &floorImageInfo)
-        .bindImage(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &shadowImageInfo)
-        .bindImage(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &skyboxInfo)
-        .build(fComp.mainSet);
-
-    EngineDescriptorManager::Builder(*descriptorManager)
-        .bindBuffer(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &uboInfoReflection)
-        .bindImage(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &floorImageInfo)
-        .bindImage(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &shadowImageInfo)
-        .build(fComp.reflectionSet);
-
-    EngineDescriptorManager::Builder(*descriptorManager)
-        .bindBuffer(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &uboInfoRefraction)
-        .bindImage(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &floorImageInfo)
-        .bindImage(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &shadowImageInfo)
-        .build(fComp.refractionSet);
+    auto dudvInfo   = makeImgInfo(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, dudvTex->getImageView(), dudvTex->getSampler());
+    auto normalInfo = makeImgInfo(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, normalTex->getImageView(), normalTex->getSampler());
 
     EngineDescriptorManager::Builder(*descriptorManager)
         .bindBuffer(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &uboInfoMain)
@@ -397,7 +352,7 @@ void GameApp::run() {
                     auto& cull = cullView.get<CullingComponent>(entity);
 
                     // 월드 좌표 적용된 중심점과 반지름 계산
-                    glm::vec3 center = transform.translation + sphere.offset;
+                    glm::vec3 center = glm::vec3(transform.mat4() * glm::vec4(sphere.offset, 1.0f));
                     // 스케일 중 가장 큰 값을 곱해줍니다
                     float maxScale = std::max({transform.scale.x, transform.scale.y, transform.scale.z});
                     float radius = sphere.radius * maxScale;
@@ -551,6 +506,8 @@ void GameApp::spawnPlayer(const std::string& modelName, glm::vec3 position) {
     auto &modelComp = registry.emplace<ModelComponent>(player, assetManager->getModel(modelName));
     modelComp.roughness = 0.9f; 
     
+    registry.emplace<MaterialComponent>(player, "KoroneMap");
+
     uint32_t ragdollID = physicsEngine.createSimpleRagdoll(position);
     registry.emplace<RagdollComponent>(player, ragdollID);
 
@@ -614,6 +571,13 @@ void GameApp::loadSceneFromJSON(const std::string& filepath) {
                     auto model = assetManager->getModel(modelName);
                     auto& modelComp = registry.emplace<ModelComponent>(entity, model);
                     modelComp.roughness = 0.8f; 
+
+
+                    std::string texName = "Wood"; // 기본값
+                    if (entityData.contains("texture")) {
+                        texName = entityData["texture"]; // 안전한 추출
+                    }
+                    registry.emplace<MaterialComponent>(entity, texName);
 
                     float radius = modelComp.model->getBoundingRadius();
                     glm::vec3 center = modelComp.model->getBoundingCenter();
