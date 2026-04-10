@@ -199,16 +199,6 @@ void GameApp::run() {
         camera.setViewTarget(viewTrans.translation, viewTrans.translation + lookDirection);
         camera.setPerspectiveProjection(glm::radians(50.f), engineRenderer->getAspectRatio(), 0.1f, 1000.f);
 
-        auto animView = registry.view<AnimatorComponent>();
-        for (auto entity : animView) {
-            auto& animComp = animView.get<AnimatorComponent>(entity);
-            if (animComp.animator) {
-                // (선택) 여기서 특정 조건에 따라 playAnimation을 호출할 수도 있습니다.
-                // 지금은 이미 생성자에서 idle을 세팅했으므로 업데이트만 해줍니다.
-                animComp.animator->updateAnimation(frameTime); 
-            }
-        }
-
         // [2] UBO 갱신 (뼈대 및 조명 연산)
         GlobalUbo uboMain{};
         uboMain.view = camera.getView();
@@ -227,6 +217,21 @@ void GameApp::run() {
             auto &ragdoll = ragdollView.get<RagdollComponent>(entity);
             auto &modelComp = ragdollView.get<ModelComponent>(entity);
             physicsEngine.syncRagdollBones(ragdoll.ragdollID, modelComp.model->getBoneInfoMap(), uboMain.finalBonesMatrices, transform.translation, transform.rotation);
+        }
+
+        auto animView = registry.view<AnimatorComponent>();
+        for (auto entity : animView) {
+            auto& animComp = animView.get<AnimatorComponent>(entity);
+            if (animComp.animator) {
+                // (선택) 여기서 특정 조건에 따라 playAnimation을 호출할 수도 있습니다.
+                // 지금은 이미 생성자에서 idle을 세팅했으므로 업데이트만 해줍니다.
+                animComp.animator->updateAnimation(frameTime); 
+
+                auto& transforms = animComp.animator->getFinalBoneMatrices();
+                for (int i = 0; i < std::min((int)transforms.size(), MAX_BONES); i++) {
+                    uboMain.finalBonesMatrices[i] = transforms[i];
+                }
+            }
         }
 
         int lightCount = 0;
@@ -291,7 +296,7 @@ void GameApp::run() {
                     glm::vec3 center = glm::vec3(transform.mat4() * glm::vec4(sphere.offset, 1.0f));
                     // 스케일 중 가장 큰 값을 곱해줍니다
                     float maxScale = std::max({transform.scale.x, transform.scale.y, transform.scale.z});
-                    float radius = sphere.radius * maxScale;
+                    float radius = sphere.radius * maxScale * 1.5f;
 
                     cull.isVisible = true;
 
@@ -436,11 +441,16 @@ void GameApp::loadSceneFromJSON(const std::string& filepath) {
             std::string tag = entityData["tag"];
             
             // 1. 트랜스폼 데이터 추출 및 장착 (모든 엔티티 공통)
-            glm::vec3 pos{0.0f}, scale{1.0f};
+            glm::vec3 pos{0.0f}, scale{1.0f}, rot{0.0f};
             if (entityData.contains("transform")) {
                 auto& t = entityData["transform"];
                 pos = glm::vec3(t["position"][0], t["position"][1], t["position"][2]);
                 scale = glm::vec3(t["scale"][0], t["scale"][1], t["scale"][2]);
+                if (t.contains("rotation")) {
+                    rot = glm::vec3(glm::radians((float)t["rotation"][0]), 
+                                    glm::radians((float)t["rotation"][1]), 
+                                    glm::radians((float)t["rotation"][2]));
+                }
             }
 
             auto entity = registry.create();
@@ -469,6 +479,23 @@ void GameApp::loadSceneFromJSON(const std::string& filepath) {
 
                     registry.emplace<BoundingSphereComponent>(entity, radius, center); 
                     registry.emplace<CullingComponent>(entity);
+
+                    if (entityData.contains("animations")) {
+                        auto animData = entityData["animations"];
+                        
+                        // 현재는 기본 대기(idle) 모션만 로드해서 재생하도록 세팅합니다.
+                        if (animData.contains("idle")) {
+                            std::string idlePath = animData["idle"].get<std::string>();
+                            
+                            // EngineAnimation은 해당 모델의 뼈대(Bone) 구조를 알아야 하므로 model 포인터를 넘겨줍니다.
+                            auto idleAnim = std::make_shared<EngineAnimation>(idlePath, model.get());
+                            
+                            // AnimatorComponent 생성자를 통해 애니메이션 세팅!
+                            registry.emplace<AnimatorComponent>(entity, idleAnim);
+                            
+                            std::cout << "  - 애니메이션 로드 및 부착 완료: " << idlePath << std::endl;
+                        }
+                    }
                 } catch (const std::exception& e) {
                     std::cerr << "경고: " << e.what() << std::endl;
                 }
@@ -477,8 +504,8 @@ void GameApp::loadSceneFromJSON(const std::string& filepath) {
             // 3. 태그에 따른 특수 컴포넌트 장착
             if (tag == "Player") {
                 registry.emplace<PlayerTag>(entity);
-                uint32_t ragdollID = physicsEngine.createSimpleRagdoll(pos);
-                registry.emplace<RagdollComponent>(entity, ragdollID);
+                //uint32_t ragdollID = physicsEngine.createSimpleRagdoll(pos);
+                //registry.emplace<RagdollComponent>(entity, ragdollID);
             } 
             else if (tag == "Floor") {
                 registry.emplace<FloorTag>(entity);
