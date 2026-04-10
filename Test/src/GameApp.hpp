@@ -20,6 +20,7 @@
 #include "SimpleRenderSystem.hpp"
 #include "Components.hpp"
 #include "EngineThreadPool.hpp"
+#include "AssetManager.hpp"
 
 #include "EngineRenderer.hpp"
 
@@ -68,14 +69,6 @@ struct SimplePushConstantData {
     float metallic{0.0f};
 };
 
-class AssetManager {
-    std::unordered_map<std::string, std::shared_ptr<EngineModel>> models;
-    std::unordered_map<std::string, std::shared_ptr<EngineTexture>> textures;
-public:
-    void loadModel(const std::string& name, const std::string& path);
-    auto getModel(const std::string& name);
-};
-
 class GameApp {
 public:
     static constexpr int WIDTH = 1920;
@@ -86,10 +79,6 @@ public:
 
     GameApp(const GameApp &) = delete;
     GameApp &operator=(const GameApp &) = delete;
-
-    //외부(main.cpp)에서 에셋을 등록할 수 있는 API
-    void loadTexture(const std::string& name, const std::string& filepath);
-    void loadModel(const std::string& name, const std::string& filepath);
     
     //외부에서 엔티티를 생성할 수 있는 API
     void spawnPlayer(const std::string& modelName, glm::vec3 position);
@@ -131,8 +120,7 @@ private:
     std::unique_ptr<EngineAnimation> walkAnimation;
     std::unique_ptr<EngineAnimator> animator;
 
-    std::unordered_map<std::string, std::shared_ptr<EngineTexture>> textures;
-    std::unordered_map<std::string, std::shared_ptr<EngineModel>> models;
+    std::unique_ptr<AssetManager> assetManager;
 
     // --- 4. 게임 로직 시스템 ---
     entt::registry registry;

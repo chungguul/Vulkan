@@ -3,6 +3,8 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include "EngineModel.hpp"
+#include "EngineAnimation.hpp"
+#include "EngineAnimator.hpp"
 
 #include <memory>
 #include <cstdint>
@@ -71,4 +73,22 @@ struct BoundingSphereComponent {
 // 컬링 결과 저장 (매 프레임 스레드들이 이 값을 true/false로 바꿉니다)
 struct CullingComponent {
     bool isVisible = true;
+};
+
+struct AnimatorComponent {
+    std::shared_ptr<EngineAnimation> currentAnimation; // 현재 재생 중인 모션 (공유 가능)
+    std::unique_ptr<EngineAnimator> animator;          // 현재 재생 시간, 프레임 (독립적)
+
+    // 편의용 생성자
+    AnimatorComponent(std::shared_ptr<EngineAnimation> anim) {
+        currentAnimation = anim;
+        animator = std::make_unique<EngineAnimator>(currentAnimation.get());
+    }
+};
+
+//물 컴포넌트 (이 명찰이 붙어있는 바닥은 알아서 찰랑이는 물로 렌더링 됨)
+struct WaterComponent {
+    float height = 0.5f;       // 물의 높이
+    float waveSpeed = 0.05f;   // 물결 속도
+    // 나중에 dudv, normal 텍스처 참조도 이 안에 넣을 수 있습니다.
 };

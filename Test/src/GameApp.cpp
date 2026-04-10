@@ -13,8 +13,8 @@ using json = nlohmann::json;
 GameApp::GameApp() {
     std::cout << "엔진 코어 초기화 중..." << std::endl;
     
+    assetManager = std::make_unique<AssetManager>(device); 
     threadPool = std::make_unique<EngineThreadPool>();
-    
     engineRenderer = std::make_unique<EngineRenderer>(window, device);
 
     // 1-1. 물리 엔진 초기화
@@ -31,8 +31,8 @@ GameApp::GameApp() {
 
     // 1-4. 텍스처 및 스카이박스 로딩
     std::cout << "코어 에셋 로딩 중..." << std::endl;
-    loadTexture("WaterDUDV", "../textures/waterDUDV.png");
-    loadTexture("WaterNormal", "../textures/waterNormal.jpg");
+    assetManager->loadTexture("WaterDUDV", "../textures/waterDUDV.png");
+    assetManager->loadTexture("WaterNormal", "../textures/waterNormal.jpg");
 
     EngineTexture hdrSkyboxTexture{device};
     hdrSkyboxTexture.loadHDR("../textures/sunflowers_puresky_4k.hdr");
@@ -92,8 +92,14 @@ void GameApp::setupDescriptorsAndPipelines() {
     auto makeImgInfo = [](VkImageLayout layout, VkImageView view, VkSampler sampler) {
         VkDescriptorImageInfo info{}; info.imageLayout = layout; info.imageView = view; info.sampler = sampler; return info;
     };
-    auto koroneImageInfo = makeImgInfo(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, textures["KoroneMap"]->getImageView(), textures["KoroneMap"]->getSampler());
-    auto floorImageInfo  = makeImgInfo(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, textures["Wood"]->getImageView(), textures["Wood"]->getSampler());
+
+    auto koroneTex = assetManager->getTexture("KoroneMap");
+    auto woodTex   = assetManager->getTexture("Wood");
+    auto dudvTex   = assetManager->getTexture("WaterDUDV");
+    auto normalTex = assetManager->getTexture("WaterNormal");
+
+    auto koroneImageInfo = makeImgInfo(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, koroneTex->getImageView(), koroneTex->getSampler());
+    auto floorImageInfo  = makeImgInfo(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, woodTex->getImageView(), woodTex->getSampler());
     
     auto shadowImageInfo = makeImgInfo(VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, engineShadow->getImageView(), engineShadow->getSampler());
     auto skyboxInfo      = makeImgInfo(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, skyboxCubemap->getImageView(), skyboxCubemap->getSampler());
@@ -101,8 +107,8 @@ void GameApp::setupDescriptorsAndPipelines() {
     auto refractionInfo  = makeImgInfo(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, engineWater->getRefractionImageView(), engineWater->getSampler());
     
     // 코어 에셋 창고에서 꺼내기
-    auto dudvInfo   = makeImgInfo(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, textures["WaterDUDV"]->getImageView(), textures["WaterDUDV"]->getSampler());
-    auto normalInfo = makeImgInfo(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, textures["WaterNormal"]->getImageView(), textures["WaterNormal"]->getSampler());
+    auto dudvInfo   = makeImgInfo(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, dudvTex->getImageView(), dudvTex->getSampler());
+    auto normalInfo = makeImgInfo(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, normalTex->getImageView(), normalTex->getSampler());    
     
     // 버퍼 정보
     auto uboInfoMain = uboBufferMain->descriptorInfo();
@@ -308,8 +314,15 @@ void GameApp::run() {
         camera.setViewTarget(viewTrans.translation, viewTrans.translation + lookDirection);
         camera.setPerspectiveProjection(glm::radians(50.f), engineRenderer->getAspectRatio(), 0.1f, 1000.f);
 
-        animator->playAnimation(idleAnimation.get());
-        animator->updateAnimation(frameTime);
+        auto animView = registry.view<AnimatorComponent>();
+        for (auto entity : animView) {
+            auto& animComp = animView.get<AnimatorComponent>(entity);
+            if (animComp.animator) {
+                // (선택) 여기서 특정 조건에 따라 playAnimation을 호출할 수도 있습니다.
+                // 지금은 이미 생성자에서 idle을 세팅했으므로 업데이트만 해줍니다.
+                animComp.animator->updateAnimation(frameTime); 
+            }
+        }
 
         // [2] UBO 갱신 (뼈대 및 조명 연산)
         GlobalUbo uboMain{};
@@ -510,8 +523,9 @@ void GameApp::run() {
             vkCmdPushConstants(commandBuffer, waterPipeline->getPipelineLayout(), VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(SimplePushConstantData), &waterPush);
             vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, waterPipeline->getPipelineLayout(), 0, 1, &waterSet, 0, nullptr);
             
-            models["FloorModel"]->bind(commandBuffer); 
-            models["FloorModel"]->draw(commandBuffer);
+            auto floorModel = assetManager->getModel("FloorModel");
+            floorModel->bind(commandBuffer);
+            floorModel->draw(commandBuffer);
 
             // ★ 메인 무대 닫기!
             engineRenderer->endSwapChainRenderPass(commandBuffer);
@@ -524,79 +538,6 @@ void GameApp::run() {
     }
 }
 
-
-
-void GameApp::loadTexture(const std::string& name, const std::string& filepath) {
-    // 텍스처를 동적 생성해서 창고(Map)에 'name'이라는 이름표를 붙여 보관합니다.
-    textures[name] = std::make_shared<EngineTexture>(device, filepath);
-}
-
-void GameApp::loadModel(const std::string& name, const std::string& filepath) {
-    if (filepath == "Primitive:Plane") {
-        EngineModel::Builder builder{};
-        builder.vertices = {
-            {{-20.0f, 0.0f, -20.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
-            {{-20.0f, 0.0f,  20.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 10.0f}},
-            {{ 20.0f, 0.0f,  20.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f, 0.0f}, {10.0f, 10.0f}},
-            {{ 20.0f, 0.0f, -20.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f, 0.0f}, {10.0f, 0.0f}}
-        };
-        builder.indices = {0, 1, 2, 2, 3, 0};
-        models[name] = std::make_shared<EngineModel>(device, builder);
-        return;
-    } 
-    // ★ 1. 큐브 생성기
-    else if (filepath == "Primitive:Cube") {
-        EngineModel::Builder builder{};
-        builder.vertices = {
-            {{-0.5f,-0.5f, 0.5f},{1.f,1.f,1.f},{ 0.f, 0.f, 1.f},{0.f,1.f}}, {{ 0.5f,-0.5f, 0.5f},{1.f,1.f,1.f},{ 0.f, 0.f, 1.f},{1.f,1.f}}, {{ 0.5f, 0.5f, 0.5f},{1.f,1.f,1.f},{ 0.f, 0.f, 1.f},{1.f,0.f}}, {{-0.5f, 0.5f, 0.5f},{1.f,1.f,1.f},{ 0.f, 0.f, 1.f},{0.f,0.f}}, // Front
-            {{-0.5f,-0.5f,-0.5f},{1.f,1.f,1.f},{ 0.f, 0.f,-1.f},{1.f,1.f}}, {{ 0.5f,-0.5f,-0.5f},{1.f,1.f,1.f},{ 0.f, 0.f,-1.f},{0.f,1.f}}, {{ 0.5f, 0.5f,-0.5f},{1.f,1.f,1.f},{ 0.f, 0.f,-1.f},{0.f,0.f}}, {{-0.5f, 0.5f,-0.5f},{1.f,1.f,1.f},{ 0.f, 0.f,-1.f},{1.f,0.f}}, // Back
-            {{-0.5f, 0.5f, 0.5f},{1.f,1.f,1.f},{ 0.f, 1.f, 0.f},{0.f,1.f}}, {{ 0.5f, 0.5f, 0.5f},{1.f,1.f,1.f},{ 0.f, 1.f, 0.f},{1.f,1.f}}, {{ 0.5f, 0.5f,-0.5f},{1.f,1.f,1.f},{ 0.f, 1.f, 0.f},{1.f,0.f}}, {{-0.5f, 0.5f,-0.5f},{1.f,1.f,1.f},{ 0.f, 1.f, 0.f},{0.f,0.f}}, // Top
-            {{-0.5f,-0.5f, 0.5f},{1.f,1.f,1.f},{ 0.f,-1.f, 0.f},{0.f,0.f}}, {{ 0.5f,-0.5f, 0.5f},{1.f,1.f,1.f},{ 0.f,-1.f, 0.f},{1.f,0.f}}, {{ 0.5f,-0.5f,-0.5f},{1.f,1.f,1.f},{ 0.f,-1.f, 0.f},{1.f,1.f}}, {{-0.5f,-0.5f,-0.5f},{1.f,1.f,1.f},{ 0.f,-1.f, 0.f},{0.f,1.f}}, // Bottom
-            {{ 0.5f,-0.5f, 0.5f},{1.f,1.f,1.f},{ 1.f, 0.f, 0.f},{0.f,1.f}}, {{ 0.5f,-0.5f,-0.5f},{1.f,1.f,1.f},{ 1.f, 0.f, 0.f},{1.f,1.f}}, {{ 0.5f, 0.5f,-0.5f},{1.f,1.f,1.f},{ 1.f, 0.f, 0.f},{1.f,0.f}}, {{ 0.5f, 0.5f, 0.5f},{1.f,1.f,1.f},{ 1.f, 0.f, 0.f},{0.f,0.f}}, // Right
-            {{-0.5f,-0.5f, 0.5f},{1.f,1.f,1.f},{-1.f, 0.f, 0.f},{1.f,1.f}}, {{-0.5f,-0.5f,-0.5f},{1.f,1.f,1.f},{-1.f, 0.f, 0.f},{0.f,1.f}}, {{-0.5f, 0.5f,-0.5f},{1.f,1.f,1.f},{-1.f, 0.f, 0.f},{0.f,0.f}}, {{-0.5f, 0.5f, 0.5f},{1.f,1.f,1.f},{-1.f, 0.f, 0.f},{1.f,0.f}}  // Left
-        };
-        builder.indices = { 0,1,2,2,3,0, 5,4,7,7,6,5, 8,9,10,10,11,8, 15,14,13,13,12,15, 16,17,18,18,19,16, 21,20,23,23,22,21 };
-        models[name] = std::make_shared<EngineModel>(device, builder);
-        return;
-    }
-    // ★ 2. 구(Sphere) 생성기
-    else if (filepath == "Primitive:Sphere") {
-        EngineModel::Builder builder{};
-        const int sectors = 36;
-        const int stacks = 18;
-        const float PI = 3.14159265359f;
-        for (int i = 0; i <= stacks; ++i) {
-            float V = (float)i / stacks;
-            float phi = V * PI;
-            for (int j = 0; j <= sectors; ++j) {
-                float U = (float)j / sectors;
-                float theta = U * 2.0f * PI;
-                float x = std::cos(theta) * std::sin(phi);
-                float y = std::cos(phi);
-                float z = std::sin(theta) * std::sin(phi);
-                builder.vertices.push_back({{x, y, z}, {1.0f, 1.0f, 1.0f}, {x, y, z}, {U, V}});
-            }
-        }
-    for (int i = 0; i < stacks; ++i) {
-            for (int j = 0; j < sectors; ++j) {
-                int first = (i * (sectors + 1)) + j;
-                int second = first + sectors + 1;
-                builder.indices.insert(builder.indices.end(), { 
-                    (uint32_t)first, (uint32_t)(first + 1), (uint32_t)second, 
-                    (uint32_t)(first + 1), (uint32_t)(second + 1), (uint32_t)second 
-                });
-            }
-        }
-        models[name] = std::make_shared<EngineModel>(device, builder);
-        return;
-    }
-
-    // 일반 FBX/OBJ 로딩
-    EngineModel::Builder builder{};
-    builder.loadModel(filepath);
-    models[name] = std::make_shared<EngineModel>(device, builder);
-}
-
 // 2. 엔티티 스폰 API 구현
 void GameApp::spawnPlayer(const std::string& modelName, glm::vec3 position) {
     auto player = registry.create();
@@ -607,7 +548,7 @@ void GameApp::spawnPlayer(const std::string& modelName, glm::vec3 position) {
     transform.scale = {0.01f, 0.01f, 0.01f}; // 모델에 따라 기본 스케일은 하드코딩하거나 매개변수로 뺄 수 있습니다.
     
     // ★ 창고(models)에서 이름으로 모델을 찾아서 넣어줍니다!
-    auto &modelComp = registry.emplace<ModelComponent>(player, models[modelName]);
+    auto &modelComp = registry.emplace<ModelComponent>(player, assetManager->getModel(modelName));
     modelComp.roughness = 0.9f; 
     
     uint32_t ragdollID = physicsEngine.createSimpleRagdoll(position);
@@ -636,13 +577,13 @@ void GameApp::loadSceneFromJSON(const std::string& filepath) {
         for (const auto& modelData : j["required_assets"]["models"]) {
             std::string name = modelData["name"];
             std::string path = modelData["path"];
-            loadModel(name, path);
+            assetManager->loadModel(name, path);
             std::cout << "  - 모델 로드 완료: " << name << std::endl;
         }
         for (const auto& texData : j["required_assets"]["textures"]) {
             std::string name = texData["name"];
             std::string path = texData["path"];
-            loadTexture(name, path);
+            assetManager->loadTexture(name, path);
             std::cout << "  - 텍스처 로드 완료: " << name << std::endl;
         }
     }
@@ -668,8 +609,10 @@ void GameApp::loadSceneFromJSON(const std::string& filepath) {
             // 2. 모델이 있는 경우만 ModelComponent 장착
             if (entityData.contains("model")) {
                 std::string modelName = entityData["model"];
-                if (models.find(modelName) != models.end()) {
-                    auto& modelComp = registry.emplace<ModelComponent>(entity, models[modelName]);
+                // ★ map.find() 대신 그냥 try-catch로 안전하게 가져오거나 예외처리
+                try {
+                    auto model = assetManager->getModel(modelName);
+                    auto& modelComp = registry.emplace<ModelComponent>(entity, model);
                     modelComp.roughness = 0.8f; 
 
                     float radius = modelComp.model->getBoundingRadius();
@@ -677,8 +620,8 @@ void GameApp::loadSceneFromJSON(const std::string& filepath) {
 
                     registry.emplace<BoundingSphereComponent>(entity, radius, center); 
                     registry.emplace<CullingComponent>(entity);
-                } else {
-                    std::cerr << "경고: 에셋 창고에 모델이 없습니다 -> " << modelName << std::endl;
+                } catch (const std::exception& e) {
+                    std::cerr << "경고: " << e.what() << std::endl;
                 }
             }
 
@@ -710,12 +653,7 @@ void GameApp::loadSceneFromJSON(const std::string& filepath) {
         }
     }
 
-    // ★ 수정 3: 씬에 필요한 모델이 로드되었으니, 애니메이션 객체를 생성합니다. (임시 하드코딩)
-    if (models.find("Kedama") != models.end()) {
-        idleAnimation = std::make_unique<EngineAnimation>("../models/KedamaKorone.fbx", models["Kedama"].get());
-        walkAnimation = std::make_unique<EngineAnimation>("../models/Walking.fbx", models["Kedama"].get());
-        animator = std::make_unique<EngineAnimator>(idleAnimation.get());
-    }
+
 
     // ★ 수정 4: 모든 에셋과 ECS 엔티티 세팅이 끝났으므로, 디스크립터를 조립합니다!
     setupDescriptorsAndPipelines();
