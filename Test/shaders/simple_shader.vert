@@ -20,34 +20,50 @@ layout(set = 0, binding = 0) uniform GlobalUbo {
     vec4 ambientLightColor;
     vec3 lightDirection;
     vec4 lightColor;
-    mat4 finalBonesMatrices[MAX_BONES]; // ★ 뼈대 행렬 100개 추가!
 } ubo;
+
+layout(std140, set = 0, binding = 5) readonly buffer BoneBuffer {
+    mat4 finalBonesMatrices[]; // 배열 크기 제한 없음!
+} boneBuffer;
 
 layout(push_constant) uniform Push {
     mat4 modelMatrix;
+    float roughness;
+    float metallic;
+    int characterIndex;
 } push;
 
 void main() {
     vec4 totalPosition = vec4(0.0f);
     vec3 totalNormal = vec3(0.0f);
 
-    // ★ 스키닝(Skinning) 로직: 정점이 영향을 받는 최대 4개의 뼈대 변환을 가중치만큼 섞습니다.
     bool hasBones = false;
-    for(int i = 0 ; i < MAX_BONE_INFLUENCE ; i++) {
+    
+    // MAX_BONE_INFLUENCE는 보통 4입니다.
+    for(int i = 0 ; i < 4 ; i++) {
         if(inBoneIDs[i] == -1) continue; // 빈칸이면 패스
         
         hasBones = true;
-        if(inBoneIDs[i] >= MAX_BONES) {
-            totalPosition = vec4(inPosition, 1.0f); // 안전 장치
+        if(inBoneIDs[i] >= 100) { // MAX_BONES 안전 장치
+            totalPosition = vec4(inPosition, 1.0f); 
             break;
         }
         
+        // ==========================================================
+        // ★ 핵심 변경: SSBO에서 내 캐릭터의 뼈대 위치를 찾아옵니다!
+        // 내 번호표(push.characterIndex) * 100개 + 현재 뼈대 번호
+        int actualBoneIndex = (push.characterIndex * 100) + inBoneIDs[i];
+        
+        // ubo 대신 boneBuffer(SSBO)에서 행렬을 꺼냅니다.
+        mat4 boneMatrix = boneBuffer.finalBonesMatrices[actualBoneIndex];
+        // ==========================================================
+        
         // 정점 위치 꺾기
-        vec4 localPosition = ubo.finalBonesMatrices[inBoneIDs[i]] * vec4(inPosition, 1.0f);
+        vec4 localPosition = boneMatrix * vec4(inPosition, 1.0f);
         totalPosition += localPosition * inBoneWeights[i];
         
-        // 법선(빛 반사 방향)도 같이 꺾어주기 (회전만 적용되도록 mat3 사용)
-        vec3 localNormal = mat3(ubo.finalBonesMatrices[inBoneIDs[i]]) * inNormal;
+        // 법선(빛 반사 방향) 꺾기 (회전만 적용되도록 mat3 사용)
+        vec3 localNormal = mat3(boneMatrix) * inNormal;
         totalNormal += localNormal * inBoneWeights[i];
     }
 
@@ -58,7 +74,8 @@ void main() {
     }
 
     vec4 positionWorld = push.modelMatrix * totalPosition;
-    gl_Position = ubo.projectionViewMatrix * positionWorld;
+    
+    gl_Position = ubo.projectionViewMatrix * positionWorld; 
 
     fragColor = inColor;
     fragPosWorld = positionWorld.xyz;

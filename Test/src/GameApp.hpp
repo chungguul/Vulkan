@@ -47,7 +47,7 @@ struct GlobalUbo {
     glm::vec3 lightDirection = glm::normalize(glm::vec3(0.5f, -3.0f, 1.0f));
     alignas(16) glm::vec4 lightColor{1.0f, 1.0f, 1.0f, 1.0f};
 
-    glm::mat4 finalBonesMatrices[MAX_BONES];
+    //glm::mat4 finalBonesMatrices[MAX_BONES];
 
     glm::mat4 view;
     glm::mat4 proj;
@@ -104,6 +104,8 @@ private:
     std::unique_ptr<EngineBuffer> uboBufferRefraction;
 
     std::unique_ptr<AssetManager> assetManager;
+
+    std::unique_ptr<EngineBuffer> boneSSBO;
 
     // --- 4. 게임 로직 시스템 ---
     entt::registry registry;

@@ -33,6 +33,11 @@ void EngineShadowSystem::render(VkCommandBuffer commandBuffer, entt::registry& r
         SimplePushConstantData push{};
         push.modelMatrix = transform.mat4();
 
+        push.characterIndex = 0; // 정적 사물은 기본값 0
+        if (registry.all_of<AnimatorComponent>(entity)) {
+            push.characterIndex = registry.get<AnimatorComponent>(entity).characterIndex;
+        }
+
         vkCmdPushConstants(commandBuffer, pipeline->getPipelineLayout(), VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(SimplePushConstantData), &push);
         vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->getPipelineLayout(), 0, 1, &modelComp.mainSet, 0, nullptr);
 

@@ -16,7 +16,6 @@ layout(set = 0, binding = 0) uniform GlobalUbo {
     vec4 ambientLightColor;
     vec3 lightDirection;
     vec4 lightColor;
-    mat4 finalBonesMatrices[100];
     mat4 view;
     mat4 proj;
     mat4 lightSpaceMatrix;

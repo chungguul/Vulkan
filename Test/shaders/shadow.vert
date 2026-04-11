@@ -12,7 +12,6 @@ layout(set = 0, binding = 0) uniform GlobalUbo {
     vec4 ambientLightColor;
     vec3 lightDirection;
     vec4 lightColor;
-    mat4 finalBonesMatrices[100];
     mat4 view;
     mat4 proj;
     // ★ 빛의 시점에서 본 투영 행렬 (C++에서 추가해 줄 예정!)

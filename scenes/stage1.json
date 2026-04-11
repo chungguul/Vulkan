@@ -64,6 +64,26 @@
         "walk": "../models/Walking.fbx"
       }
     },
+        {
+      "tag": "Player",
+      "model": "Kedama",
+      "texture": "KoroneMap",
+      "transform": { "position": [0.0, 5.0, 6.0], "scale": [0.01, 0.01, 0.01] },
+      "animations": {
+        "idle": "../models/KedamaKorone.fbx",
+        "walk": "../models/Walking.fbx"
+      }
+    },
+        {
+      "tag": "Player",
+      "model": "Kedama",
+      "texture": "KoroneMap",
+      "transform": { "position": [0.0, 5.0, 3.0], "scale": [0.01, 0.01, 0.01] },
+      "animations": {
+        "idle": "../models/KedamaKorone.fbx",
+        "walk": "../models/Walking.fbx"
+      }
+    },
     {
       "tag": "Prop",
       "model": "MyCube",

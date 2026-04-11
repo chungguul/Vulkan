@@ -66,6 +66,11 @@ void SimpleRenderSystem::renderGameObjects(VkCommandBuffer commandBuffer, entt::
         push.roughness = modelComp.roughness;
         push.metallic = modelComp.metallic;
 
+        push.characterIndex = 0; // 정적 사물은 기본값 0
+        if (registry.all_of<AnimatorComponent>(entity)) {
+            push.characterIndex = registry.get<AnimatorComponent>(entity).characterIndex;
+        }
+
         vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(SimplePushConstantData), &push);                
         
         // ★ 추가: passType에 따라 알맞은 디스크립터 세트를 고릅니다!

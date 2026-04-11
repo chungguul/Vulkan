@@ -29,6 +29,16 @@ GameApp::GameApp() {
     uboBufferRefraction = std::make_unique<EngineBuffer>(device, sizeof(GlobalUbo), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
     uboBufferRefraction->map();
 
+    //뼈대 전용 SSBO 생성
+    uint32_t maxCharacters = 1000;
+    boneSSBO = std::make_unique<EngineBuffer>(
+        device, 
+        sizeof(glm::mat4) * MAX_BONES * maxCharacters, 
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, 
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+    );
+    boneSSBO->map();
+
     // 1-4. 텍스처 및 스카이박스 로딩
     std::cout << "코어 에셋 로딩 중..." << std::endl;
 
@@ -52,7 +62,8 @@ void GameApp::setupDescriptorsAndPipelines() {
         {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
-        {3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}
+        {3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+        {5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr} // ★ [NEW] 뼈대 SSBO (5번 바인딩)
     };
     globalSetLayout = descriptorManager->createDescriptorSetLayout(globalBindings);
 
@@ -61,7 +72,7 @@ void GameApp::setupDescriptorsAndPipelines() {
         {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}, 
         {2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}, 
         {3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}, 
-        {4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}  
+        {4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},  
     };
     waterSetLayout = descriptorManager->createDescriptorSetLayout(waterBindings);
 
@@ -78,6 +89,7 @@ void GameApp::setupDescriptorsAndPipelines() {
     auto uboInfoMain = uboBufferMain->descriptorInfo();
     auto uboInfoReflection = uboBufferReflection->descriptorInfo();
     auto uboInfoRefraction = uboBufferRefraction->descriptorInfo();
+    VkDescriptorBufferInfo boneInfo{boneSSBO->getBuffer(), 0, VK_WHOLE_SIZE};
 
     // 디스크립터 세트 조립
     auto renderableView = registry.view<ModelComponent, MaterialComponent>();
@@ -95,6 +107,7 @@ void GameApp::setupDescriptorsAndPipelines() {
             .bindImage(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &albedoInfo) // ★ 동적 할당!
             .bindImage(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &shadowImageInfo)
             .bindImage(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &skyboxInfo)
+            .bindBuffer(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, &boneInfo)
             .build(modelComp.mainSet);
 
         // 3. 반사(Reflection) 디스크립터 조립
@@ -102,6 +115,7 @@ void GameApp::setupDescriptorsAndPipelines() {
             .bindBuffer(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &uboInfoReflection)
             .bindImage(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &albedoInfo)
             .bindImage(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &shadowImageInfo)
+            .bindBuffer(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, &boneInfo)
             .build(modelComp.reflectionSet);
 
         // 4. 굴절(Refraction) 디스크립터 조립
@@ -109,6 +123,7 @@ void GameApp::setupDescriptorsAndPipelines() {
             .bindBuffer(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &uboInfoRefraction)
             .bindImage(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &albedoInfo)
             .bindImage(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &shadowImageInfo)
+            .bindBuffer(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, &boneInfo)
             .build(modelComp.refractionSet);
     }
 
@@ -225,7 +240,7 @@ void GameApp::run() {
             auto &transform = ragdollView.get<TransformComponent>(entity);
             auto &ragdoll = ragdollView.get<RagdollComponent>(entity);
             auto &modelComp = ragdollView.get<ModelComponent>(entity);
-            physicsEngine.syncRagdollBones(ragdoll.ragdollID, modelComp.model->getBoneInfoMap(), uboMain.finalBonesMatrices, transform.translation, transform.rotation);
+            //physicsEngine.syncRagdollBones(ragdoll.ragdollID, modelComp.model->getBoneInfoMap(), uboMain.finalBonesMatrices, transform.translation, transform.rotation);
         }
 
         auto animView = registry.view<AnimatorComponent>();
@@ -296,18 +311,28 @@ void GameApp::run() {
         // =======================================================
 
         // =======================================================
-        // [2-4] UBO 데이터 갱신 (메인 스레드)
+        // [2-4] 뼈대 데이터 SSBO에 복사
         // =======================================================
+        int currentCharacterIndex = 0; // 0번 캐릭터부터 시작
         for (auto entity : animEntities) {
             auto& animComp = animView.get<AnimatorComponent>(entity);
             if (animComp.animator) {
                 auto& transforms = animComp.animator->getFinalBoneMatrices();
-                for (int i = 0; i < std::min((int)transforms.size(), MAX_BONES); i++) {
-                    uboMain.finalBonesMatrices[i] = transforms[i];
-                }
+                
+                // 1. UBO가 아닌 거대한 SSBO의 '내 자리'에 뼈대(최대 100개)를 복사합니다!
+                // writeToBuffer(데이터, 복사할 크기, 시작 오프셋)
+                boneSSBO->writeToBuffer(
+                    (void*)transforms.data(), 
+                    sizeof(glm::mat4) * transforms.size(), 
+                    sizeof(glm::mat4) * MAX_BONES * currentCharacterIndex
+                );
+                
+                // 2. 내가 몇 번 캐릭터인지 명찰에 적어둡니다.
+                animComp.characterIndex = currentCharacterIndex;
+                
+                currentCharacterIndex++; // 다음 캐릭터는 다음 칸으로!
             }
         }
-
         //반사 및 굴절 카메라 UBO 세팅 (뼈대 데이터 포함)
         GlobalUbo uboRefraction = uboMain;
         uboRefraction.clipPlane = glm::vec4(0.0f, -1.0f, 0.0f, waterHeight + 0.1f);

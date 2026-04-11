@@ -6,8 +6,7 @@ layout(set = 0, binding = 0) uniform GlobalUbo {
     vec4 ambientLightColor;
     vec3 lightDirection;
     vec4 lightColor;
-    mat4 finalBonesMatrices[100]; // 100 = MAX_BONES
-
+    
     // 맨 끝에서 스카이박스용 데이터를 안전하게 꺼내 씁니다.
     mat4 view;
     mat4 proj;

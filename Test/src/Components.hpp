@@ -84,6 +84,7 @@ struct AnimatorComponent {
         currentAnimation = anim;
         animator = std::make_unique<EngineAnimator>(currentAnimation.get());
     }
+    int characterIndex = 0;
 };
 
 //액체 컴포넌트 (이 명찰이 붙어있는 바닥은 알아서 찰랑이는 물로 렌더링 됨)
@@ -109,4 +110,5 @@ struct SimplePushConstantData {
     glm::mat4 modelMatrix{1.0f};
     float roughness{0.8f};
     float metallic{0.0f};
+    int characterIndex{0};
 };
