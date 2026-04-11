@@ -35,7 +35,7 @@
 
 const int MAX_BONES = 100;
 const int MAX_POINT_LIGHTS = 10;
-const int MAX_FRAMES_IN_FLIGHT = 2;
+const int MAX_FRAMES_IN_FLIGHT = 3;
 
 struct PointLight {
     alignas(16) glm::vec4 position;

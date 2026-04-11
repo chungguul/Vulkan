@@ -128,6 +128,7 @@ void GameApp::setupDescriptorsAndPipelines() {
                 .bindBuffer(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &uboInfoReflection)
                 .bindImage(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &albedoInfo)
                 .bindImage(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &shadowImageInfo)
+                .bindImage(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &skyboxInfo)
                 .bindBuffer(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, &boneInfo)
                 .build(modelComp.reflectionSets[i]); // ★ i번째 공간에 저장!
 
@@ -135,6 +136,7 @@ void GameApp::setupDescriptorsAndPipelines() {
                 .bindBuffer(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &uboInfoRefraction)
                 .bindImage(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &albedoInfo)
                 .bindImage(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &shadowImageInfo)
+                .bindImage(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &skyboxInfo)
                 .bindBuffer(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, &boneInfo)
                 .build(modelComp.refractionSets[i]); // ★ i번째 공간에 저장!
         }
@@ -356,26 +358,31 @@ void GameApp::run() {
             uboRefraction.clipPlane = glm::vec4(0.0f, -1.0f, 0.0f, waterHeight + 0.1f);
 
             GlobalUbo uboReflection = uboMain;
+            
+            // 1. 카메라 위치를 물 아래로 대칭 이동
             glm::vec3 refViewPos = viewTrans.translation;
             refViewPos.y -= 2.0f * (refViewPos.y - waterHeight); 
-            glm::vec3 refTargetPos = koroneTrans.translation;
-            refTargetPos.y -= 2.0f * (refTargetPos.y - waterHeight); 
             
+            // 2. 메인 카메라의 각도를 가져옵니다.
+            float yaw = viewTrans.rotation.y;
+            float pitch = viewTrans.rotation.x;
+            
+            // 3. 시선 방향(Look Direction)에서 Y축(위아래, pitch)만 반전! (-sin(pitch) 사용)
+            glm::vec3 refLookDirection{-sin(yaw) * cos(pitch), -sin(pitch), -cos(yaw) * cos(pitch)};
+            
+            // 4. 대칭된 위치에서, 반전된 시선 방향을 바라보게 세팅!
             EngineCamera reflectionCamera{};
-            reflectionCamera.setViewTarget(refViewPos, refTargetPos);
+            reflectionCamera.setViewTarget(refViewPos, refViewPos + refLookDirection);
+            
             uboReflection.view = reflectionCamera.getView();
             uboReflection.projectionView = uboReflection.proj * uboReflection.view;
             uboReflection.clipPlane = glm::vec4(0.0f, 1.0f, 0.0f, -waterHeight + 0.1f);
+            // ==========================================================
 
             // ★ 현재 프레임의 UBO에만 기록합니다!
             uboBuffersMain[frameIndex]->writeToBuffer(&uboMain);
-            uboBuffersRefraction[frameIndex]->writeToBuffer(&uboRefraction);
+            uboBuffersRefraction[frameIndex]->writeToBuffer(&uboRefraction);   // 복구!
             uboBuffersReflection[frameIndex]->writeToBuffer(&uboReflection);
-
-            // =======================================================
-            // [3] 렌더링 파이프라인 가동 (★ frameIndex 전달!)
-            // =======================================================
-            particleSystem->computeParticles(commandBuffer, frameTime, frameIndex);
             
             // --- 그림자 패스 ---
             VkRenderPassBeginInfo shadowPassInfo{};
