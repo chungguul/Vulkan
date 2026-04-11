@@ -30,6 +30,7 @@ layout(set = 0, binding = 2) uniform sampler2D refractionTex;
 // ★ 텍스처 2장 추가!
 layout(set = 0, binding = 3) uniform sampler2D dudvMap;   
 layout(set = 0, binding = 4) uniform sampler2D normalMap; 
+layout(set = 0, binding = 5) uniform sampler2D depthMap;
 
 // 파도 설정값 조절
 const float waveStrength = 0.04;
@@ -47,6 +48,13 @@ float DistributionGGX(vec3 N, vec3 H, float roughness) {
     float denom = (NdotH2 * (a2 - 1.0) + 1.0);
     denom = PI * denom * denom;
     return nom / max(denom, 0.0000001);
+}
+
+float LinearizeDepth(float depth) {
+    float near = 0.1;
+    float far = 1000.0;
+    float z = depth * 2.0 - 1.0; 
+    return (2.0 * near * far) / (far + near - z * (far - near));
 }
 
 float GeometrySchlickGGX(float NdotV, float roughness) {
@@ -74,6 +82,12 @@ void main() {
     vec2 reflectTexCoords = vec2(ndc.x, 1.0 - ndc.y);
     vec2 refractTexCoords = vec2(ndc.x, ndc.y);
 
+    float floorDistance = LinearizeDepth(texture(depthMap, refractTexCoords).r); // 땅바닥까지의 거리
+    float waterDistance = LinearizeDepth(gl_FragCoord.z);                        // 수면까지의 거리
+    float waterDepth = floorDistance - waterDistance;                            // 진짜 물의 깊이!
+
+    float edgeAlpha = clamp(waterDepth / 0.5, 0.0, 1.0);
+
     // 1. DuDv 왜곡 (물이 자연스럽게 흐르도록 교차 애니메이션)
     float moveFactor = ubo.time * 0.05;
     vec2 distortedTexCoords = texture(dudvMap, vec2(fragUV.x + moveFactor, fragUV.y)).rg * 0.1;
@@ -87,6 +101,11 @@ void main() {
 
     vec4 reflectColor = texture(reflectionTex, reflectTexCoords);
     vec4 refractColor = texture(refractionTex, refractTexCoords);
+
+    vec4 deepWaterColor = vec4(0.0, 0.3, 0.5, 0.3); // 짙은 바다색
+    // 수심 5.0m를 기준으로 바닥이 점점 안 보이고 바다색으로 덮이게 합니다.
+    float visibility = clamp(waterDepth / 10.0, 0.0, 0.8);
+    refractColor = mix(refractColor, deepWaterColor, visibility);
 
     // 2. 노멀 맵에서 굴곡 정보 가져오기
     vec4 normalMapColor = texture(normalMap, distortedTexCoords);
@@ -104,8 +123,12 @@ void main() {
     specular = pow(specular, shineDamper);
     vec3 specularHighlights = ubo.lightColor.rgb * specular * reflectivity;
 
+    float refractiveFactor = dot(viewVector, vec3(0.0, 1.0, 0.0)); 
+    refractiveFactor = pow(refractiveFactor, 1.5); // 지수가 높을수록 가장자리 반사가 쨍해짐
+    refractiveFactor = clamp(refractiveFactor, 0.0, 1.0);
+
     // 4. 최종 색상 합성
-    vec4 waterColor = mix(reflectColor, refractColor, 0.5);
+    vec4 waterColor = mix(reflectColor, refractColor, refractiveFactor);
     waterColor = mix(waterColor, vec4(0.0, 0.3, 0.5, 1.0), 0.2); // 푸른 바다빛 첨가
     
     // ★ PBR 초기 설정 (물 질감)

@@ -1,5 +1,5 @@
 {
-  "scene_name": "AI_Generated_TechDemo",
+  "scene_name": "Water_Depth_Test_Scene",
   "environment": {
     "skybox": "../textures/sunflowers_puresky_4k.hdr"
   },
@@ -14,101 +14,76 @@
       { "name": "Wood", "path": "../textures/sandy_gravel_02_diff_2k.jpg" },
       { "name": "KoroneMap", "path": "../textures/Korone_Map.png" },
       { "name": "WaterDUDV", "path": "../textures/waterDUDV.png" },
-      { "name": "WaterNormal", "path": "../textures/waterNormal.jpg" },
-      { "name": "LavaDUDV", "path": "../textures/waterDUDV.png" },
-      { "name": "LavaNormal", "path": "../textures/waterNormal.jpg" }
+      { "name": "WaterNormal", "path": "../textures/waterNormal.jpg" }
     ]
   },
   "entities": [
     {
-      "tag": "Floor",
-      "model": "FloorModel",
+      "tag": "Prop",
+      "model": "FloorModel", 
       "texture": "Wood",
       "transform": { 
-        "position": [0.0, 0.0, 0.0], 
+        "position": [0.0, -5.5, 0.0], 
         "rotation": [0.0, 0.0, 0.0],
-        "scale": [1.0, 1.0, 1.0] 
+        "scale": [30.0, 1.0, 30.0] 
       }
     },
     {
       "tag": "Water",
       "model": "FloorModel",
       "texture": "Wood",
-      "transform": { "position": [15.0, 0.0, 0.0], "scale": [0.5, 1.0, 0.5] },
+      "transform": { 
+        "position": [0.0, 0.0, 0.0], 
+        "rotation": [0.0, 0.0, 0.0],
+        "scale": [1.5, 1.0, 1.5] 
+      },
       "water_properties": {
-        "height": 0.5,
+        "height": 0.0,
         "waveSpeed": 0.05,
         "dudvTexture": "WaterDUDV",
         "normalTexture": "WaterNormal"
       }
     },
     {
-      "tag": "Water",
-      "model": "FloorModel",
-      "texture": "Wood",
-      "transform": { "position": [-15.0, 0.0, 0.0], "scale": [0.5, 1.0, 0.5] },
-      "water_properties": {
-        "height": 0.8,
-        "waveSpeed": 0.15,
-        "dudvTexture": "LavaDUDV",
-        "normalTexture": "LavaNormal"
-      }
-    },
-    {
       "tag": "Player",
       "model": "Kedama",
       "texture": "KoroneMap",
-      "transform": { "position": [0.0, 5.0, 0.0], "scale": [0.01, 0.01, 0.01] },
+      "transform": { "position": [0.0, 0.0, 2.0], "scale": [0.01, 0.01, 0.01] },
       "animations": {
-        "idle": "../models/KedamaKorone.fbx",
-        "walk": "../models/Walking.fbx"
+        "idle": "../models/KedamaKorone.fbx"
       }
-    },
-        {
-      "tag": "Player",
-      "model": "Kedama",
-      "texture": "KoroneMap",
-      "transform": { "position": [0.0, 5.0, 6.0], "scale": [0.01, 0.01, 0.01] },
-      "animations": {
-        "idle": "../models/KedamaKorone.fbx",
-        "walk": "../models/Walking.fbx"
-      }
-    },
-        {
-      "tag": "Player",
-      "model": "Kedama",
-      "texture": "KoroneMap",
-      "transform": { "position": [0.0, 5.0, 3.0], "scale": [0.01, 0.01, 0.01] },
-      "animations": {
-        "idle": "../models/KedamaKorone.fbx",
-        "walk": "../models/Walking.fbx"
-      }
-    },
-    {
-      "tag": "Prop",
-      "model": "MyCube",
-      "texture": "Wood",
-      "transform": { "position": [5.0, 2.0, 3.0], "scale": [2.0, 2.0, 2.0] }
     },
     {
       "tag": "Prop",
       "model": "MySphere",
       "texture": "Wood",
-      "transform": { "position": [-4.0, 4.0, -2.0], "scale": [3.0, 3.0, 3.0] }
+      "transform": { "position": [3.0, -1.0, 2.0], "scale": [1.0, 1.0, 1.0] }
+    },
+    {
+      "tag": "Prop",
+      "model": "MySphere",
+      "texture": "Wood",
+      "transform": { "position": [-4.0, -3.0, 1.0], "scale": [2.5, 2.5, 2.5] }
+    },
+    {
+      "tag": "Prop",
+      "model": "MySphere",
+      "texture": "Wood",
+      "transform": { "position": [1.5, -4.5, -3.0], "scale": [1.0, 1.0, 1.0] }
     },
     {
       "tag": "Light",
-      "transform": { "position": [0.0, 10.0, 0.0], "scale": [1.0, 1.0, 1.0] },
+      "transform": { "position": [0.0, 15.0, 0.0], "scale": [1.0, 1.0, 1.0] },
       "light": {
-        "color": [1.0, 0.9, 0.8],
-        "intensity": 500.0
+        "color": [1.0, 0.95, 0.9],
+        "intensity": 800.0
       }
     },
     {
       "tag": "Camera",
       "transform": { 
-        "position": [0.0, 5.0, -10.0], 
-        "rotation": [45.0, 45.0, 45.0], 
+        "position": [0.0, 6.0, -10.0], 
+        "rotation": [30.0, 180.0, 0.0], 
         "scale": [1.0, 1.0, 1.0] 
       }
     }

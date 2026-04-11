@@ -73,6 +73,7 @@ void GameApp::setupDescriptorsAndPipelines() {
         {2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}, 
         {3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}, 
         {4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},  
+        {5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}
     };
     waterSetLayout = descriptorManager->createDescriptorSetLayout(waterBindings);
 
@@ -137,12 +138,15 @@ void GameApp::setupDescriptorsAndPipelines() {
         auto dudvInfo   = makeImgInfo(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, dudvTex->getImageView(), dudvTex->getSampler());
         auto normalInfo = makeImgInfo(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, normalTex->getImageView(), normalTex->getSampler());
 
+        auto depthInfo  = makeImgInfo(VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, engineWater->getRefractionDepthView(), engineWater->getSampler());
+
         EngineDescriptorManager::Builder(*descriptorManager)
             .bindBuffer(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &uboInfoMain)
             .bindImage(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &reflectionInfo)
             .bindImage(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &refractionInfo)
             .bindImage(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &dudvInfo)   
             .bindImage(4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &normalInfo) 
+            .bindImage(5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &depthInfo)
             .build(water.waterSet);
     }
 
@@ -230,6 +234,7 @@ void GameApp::run() {
         uboMain.proj[1][1] *= -1.0f;
         uboMain.projectionView = uboMain.proj * uboMain.view;
         uboMain.time = totalTime;
+        uboMain.clipPlane = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
         uboMain.lightDirection = glm::normalize(glm::vec3(0.5f, -3.0f, 1.0f));
         uboMain.lightSpaceMatrix = glm::ortho(-50.0f, 50.0f, -50.0f, 50.0f, 0.1f, 150.0f) * 
                                    glm::lookAt(-uboMain.lightDirection * 50.0f, glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
@@ -399,7 +404,7 @@ void GameApp::run() {
             vkCmdBeginRenderPass(commandBuffer, &refractionPassInfo, VK_SUBPASS_CONTENTS_INLINE);
             simpleRenderSystem->renderGameObjects(commandBuffer, registry, RenderPassType::REFRACTION);
             
-            engineSkybox->render(commandBuffer, 0);
+            //engineSkybox->render(commandBuffer, 0);
 
             vkCmdEndRenderPass(commandBuffer);
 
