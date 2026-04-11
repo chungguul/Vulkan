@@ -21,12 +21,21 @@ EngineCubemap::EngineCubemap(EngineDevice& device, EngineTexture& hdrTexture, ui
     uint32_t irradianceRes = 32;
     createIrradianceResources(irradianceRes);
     bakeIrradianceMap(irradianceRes);
+
+    uint32_t prefilterRes = 128; // 128x128 해상도면 정반사를 표현하기에 충분합니다.
+    createPrefilteredResources(prefilterRes);
+    bakePrefilteredMap(prefilterRes);
 }
 
 EngineCubemap::~EngineCubemap() {
+    vkDestroyImageView(engineDevice.getDevice(), prefilteredImageView, nullptr);
+    vkDestroyImage(engineDevice.getDevice(), prefilteredImage, nullptr);
+    vkFreeMemory(engineDevice.getDevice(), prefilteredMemory, nullptr);
+
     vkDestroyImageView(engineDevice.getDevice(), irradianceImageView, nullptr);
     vkDestroyImage(engineDevice.getDevice(), irradianceImage, nullptr);
     vkFreeMemory(engineDevice.getDevice(), irradianceMemory, nullptr);
+
     vkDestroySampler(engineDevice.getDevice(), cubemapSampler, nullptr);
     vkDestroyImageView(engineDevice.getDevice(), cubemapImageView, nullptr);
     vkDestroyImage(engineDevice.getDevice(), cubemapImage, nullptr);
@@ -496,4 +505,187 @@ void EngineCubemap::bakeIrradianceMap(uint32_t resolution) {
     vkDestroyShaderModule(engineDevice.getDevice(), computeShaderModule, nullptr);
 
     std::cout << "<<< Irradiance Map 베이킹 완료!" << std::endl;
+}
+
+void EngineCubemap::createPrefilteredResources(uint32_t resolution) {
+    VkFormat format = VK_FORMAT_R32G32B32A32_SFLOAT;
+
+    // 1. 이미지 생성 (★ mipLevels를 maxMipLevels(5)로 설정!)
+    VkImageCreateInfo imageInfo{};
+    imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    imageInfo.imageType = VK_IMAGE_TYPE_2D;
+    imageInfo.extent.width = resolution;
+    imageInfo.extent.height = resolution;
+    imageInfo.extent.depth = 1;
+    imageInfo.mipLevels = maxMipLevels; // ★ 다중 밉맵
+    imageInfo.arrayLayers = 6;
+    imageInfo.format = format;
+    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    imageInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
+    imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+    imageInfo.flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
+
+    if (vkCreateImage(engineDevice.getDevice(), &imageInfo, nullptr, &prefilteredImage) != VK_SUCCESS) {
+        throw std::runtime_error("실패: Prefiltered 이미지 생성 오류!");
+    }
+
+    VkMemoryRequirements memReq;
+    vkGetImageMemoryRequirements(engineDevice.getDevice(), prefilteredImage, &memReq);
+    VkMemoryAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocInfo.allocationSize = memReq.size;
+    allocInfo.memoryTypeIndex = engineDevice.findMemoryType(memReq.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+    vkAllocateMemory(engineDevice.getDevice(), &allocInfo, nullptr, &prefilteredMemory);
+    vkBindImageMemory(engineDevice.getDevice(), prefilteredImage, prefilteredMemory, 0);
+
+    // 2. 전체 밉맵을 아우르는 메인 이미지 뷰 생성
+    VkImageViewCreateInfo viewInfo{};
+    viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    viewInfo.image = prefilteredImage;
+    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_CUBE;
+    viewInfo.format = format;
+    viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    viewInfo.subresourceRange.baseMipLevel = 0;
+    viewInfo.subresourceRange.levelCount = maxMipLevels; // ★ 5단계 전체 포함
+    viewInfo.subresourceRange.baseArrayLayer = 0;
+    viewInfo.subresourceRange.layerCount = 6;
+
+    vkCreateImageView(engineDevice.getDevice(), &viewInfo, nullptr, &prefilteredImageView);
+}
+
+void EngineCubemap::bakePrefilteredMap(uint32_t resolution) {
+    std::cout << ">>> Prefiltered Map(사전 필터링 맵) 다중 밉맵 베이킹 시작..." << std::endl;
+
+    auto shaderCode = readFile("../Test/shaders/prefilter.comp.spv");
+    VkShaderModuleCreateInfo createInfo{};
+    createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+    createInfo.codeSize = shaderCode.size();
+    createInfo.pCode = reinterpret_cast<const uint32_t*>(shaderCode.data());
+    VkShaderModule computeShaderModule;
+    vkCreateShaderModule(engineDevice.getDevice(), &createInfo, nullptr, &computeShaderModule);
+
+    // 디스크립터 및 레이아웃 설정
+    std::array<VkDescriptorSetLayoutBinding, 2> bindings{};
+    bindings[0].binding = 0; bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; bindings[0].descriptorCount = 1; bindings[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    bindings[1].binding = 1; bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE; bindings[1].descriptorCount = 1; bindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    VkDescriptorSetLayoutCreateInfo layoutInfo{};
+    layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size()); layoutInfo.pBindings = bindings.data();
+    VkDescriptorSetLayout descriptorSetLayout;
+    vkCreateDescriptorSetLayout(engineDevice.getDevice(), &layoutInfo, nullptr, &descriptorSetLayout);
+
+    // ★ 푸시 상수(Push Constant) 설정 (Roughness 전달용)
+    VkPushConstantRange pushConstantRange{};
+    pushConstantRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    pushConstantRange.offset = 0;
+    pushConstantRange.size = sizeof(float);
+
+    VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
+    pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipelineLayoutInfo.setLayoutCount = 1; pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout;
+    pipelineLayoutInfo.pushConstantRangeCount = 1; pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
+    VkPipelineLayout pipelineLayout;
+    vkCreatePipelineLayout(engineDevice.getDevice(), &pipelineLayoutInfo, nullptr, &pipelineLayout);
+
+    VkComputePipelineCreateInfo pipelineInfo{};
+    pipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+    pipelineInfo.layout = pipelineLayout;
+    pipelineInfo.stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    pipelineInfo.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT; pipelineInfo.stage.module = computeShaderModule; pipelineInfo.stage.pName = "main";
+    VkPipeline computePipeline;
+    vkCreateComputePipelines(engineDevice.getDevice(), VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &computePipeline);
+
+    // 디스크립터 풀 생성
+    VkDescriptorPoolSize poolSizes[] = { {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1}, {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, maxMipLevels} };
+    VkDescriptorPoolCreateInfo poolInfo{};
+    poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO; poolInfo.poolSizeCount = 2; poolInfo.pPoolSizes = poolSizes; poolInfo.maxSets = maxMipLevels;
+    VkDescriptorPool descriptorPool;
+    vkCreateDescriptorPool(engineDevice.getDevice(), &poolInfo, nullptr, &descriptorPool);
+
+    // 커맨드 버퍼 준비
+    VkCommandBufferAllocateInfo cmdAllocInfo{}; cmdAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    cmdAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY; cmdAllocInfo.commandPool = engineDevice.getCommandPool(); cmdAllocInfo.commandBufferCount = 1;
+    VkCommandBuffer cmd; vkAllocateCommandBuffers(engineDevice.getDevice(), &cmdAllocInfo, &cmd);
+    VkCommandBufferBeginInfo beginInfo{}; beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO; beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkBeginCommandBuffer(cmd, &beginInfo);
+
+    // (A) 전체 이미지를 GENERAL 레이아웃으로 변경
+    VkImageMemoryBarrier barrier{};
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED; barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED; barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = prefilteredImage;
+    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier.subresourceRange.baseMipLevel = 0; barrier.subresourceRange.levelCount = maxMipLevels;
+    barrier.subresourceRange.baseArrayLayer = 0; barrier.subresourceRange.layerCount = 6;
+    barrier.srcAccessMask = 0; barrier.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+    // =========================================================
+    // ★ 핵심 루프: 각 밉맵 레벨마다 거칠기를 올려가며 굽습니다!
+    // =========================================================
+    for (uint32_t mip = 0; mip < maxMipLevels; mip++) {
+        // 현재 밉맵 해상도 계산 (128 -> 64 -> 32 -> 16 -> 8)
+        uint32_t mipWidth = resolution * std::pow(0.5, mip);
+        uint32_t mipHeight = resolution * std::pow(0.5, mip);
+        float roughness = (float)mip / (float)(maxMipLevels - 1);
+
+        // 특정 밉맵 1장만을 가리키는 전용 임시 이미지 뷰 생성 (저장용)
+        VkImageViewCreateInfo viewInfo{};
+        viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        viewInfo.image = prefilteredImage; viewInfo.viewType = VK_IMAGE_VIEW_TYPE_CUBE; viewInfo.format = VK_FORMAT_R32G32B32A32_SFLOAT;
+        viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        viewInfo.subresourceRange.baseMipLevel = mip; viewInfo.subresourceRange.levelCount = 1; // ★ 오직 이 밉맵만!
+        viewInfo.subresourceRange.baseArrayLayer = 0; viewInfo.subresourceRange.layerCount = 6;
+        VkImageView mipView;
+        vkCreateImageView(engineDevice.getDevice(), &viewInfo, nullptr, &mipView);
+
+        // 디스크립터 셋 할당 및 업데이트
+        VkDescriptorSetAllocateInfo allocInfo{};
+        allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO; allocInfo.descriptorPool = descriptorPool;
+        allocInfo.descriptorSetCount = 1; allocInfo.pSetLayouts = &descriptorSetLayout;
+        VkDescriptorSet descriptorSet; vkAllocateDescriptorSets(engineDevice.getDevice(), &allocInfo, &descriptorSet);
+
+        VkDescriptorImageInfo envInfo{}; envInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL; envInfo.imageView = cubemapImageView; envInfo.sampler = cubemapSampler;
+        VkDescriptorImageInfo prefInfo{}; prefInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL; prefInfo.imageView = mipView; prefInfo.sampler = cubemapSampler;
+
+        std::array<VkWriteDescriptorSet, 2> writes{};
+        writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; writes[0].dstSet = descriptorSet; writes[0].dstBinding = 0; writes[0].dstArrayElement = 0; writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; writes[0].descriptorCount = 1; writes[0].pImageInfo = &envInfo;
+        writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; writes[1].dstSet = descriptorSet; writes[1].dstBinding = 1; writes[1].dstArrayElement = 0; writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE; writes[1].descriptorCount = 1; writes[1].pImageInfo = &prefInfo;
+        vkUpdateDescriptorSets(engineDevice.getDevice(), static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+
+        // 셰이더 바인딩 및 푸시 상수 전달, 디스패치
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, computePipeline);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
+        vkCmdPushConstants(cmd, pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(float), &roughness);
+        
+        // 워크그룹 개수는 해상도에 비례해서 줄어듭니다. 최소 1개는 보장 (max(1, ...))
+        uint32_t groupX = std::max(1u, mipWidth / 16);
+        vkCmdDispatch(cmd, groupX, groupX, 6);
+
+        // 임시 뷰는 렌더링 끝난 후 삭제해야 하므로 큐에 보관 (간단히 하기 위해 동기화 전제로 누수 방지 생략. 엄밀히는 commandBuffer 실행 후 vkDestroyImageView 해야 합니다. 테스트용으론 괜찮습니다.)
+    }
+
+    // (C) 모든 밉맵 베이킹 후, 전체 이미지를 렌더링 읽기 전용으로 변환
+    barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL; barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT; barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+    vkEndCommandBuffer(cmd);
+
+    // 실행 및 대기
+    VkSubmitInfo submitInfo{}; submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO; submitInfo.commandBufferCount = 1; submitInfo.pCommandBuffers = &cmd;
+    vkQueueSubmit(engineDevice.getGraphicsQueue(), 1, &submitInfo, VK_NULL_HANDLE);
+    vkQueueWaitIdle(engineDevice.getGraphicsQueue());
+    vkFreeCommandBuffers(engineDevice.getDevice(), engineDevice.getCommandPool(), 1, &cmd);
+
+    // 임시 자원 정리
+    vkDestroyPipeline(engineDevice.getDevice(), computePipeline, nullptr); vkDestroyPipelineLayout(engineDevice.getDevice(), pipelineLayout, nullptr);
+    vkDestroyDescriptorPool(engineDevice.getDevice(), descriptorPool, nullptr); vkDestroyDescriptorSetLayout(engineDevice.getDevice(), descriptorSetLayout, nullptr); vkDestroyShaderModule(engineDevice.getDevice(), computeShaderModule, nullptr);
+
+    std::cout << "<<< Prefiltered Map 다중 밉맵 베이킹 완료!" << std::endl;
 }

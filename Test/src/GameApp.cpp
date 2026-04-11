@@ -73,7 +73,8 @@ void GameApp::setupDescriptorsAndPipelines() {
         {2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}, // ★ [NEW] 4번: 조도 맵(Irradiance)
-        {5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr} // ★ [NEW] 뼈대 SSBO (5번 바인딩)
+        {5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr}, // ★ [NEW] 뼈대 SSBO (5번 바인딩)
+        {6, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}
     };
     globalSetLayout = descriptorManager->createDescriptorSetLayout(globalBindings);
 
@@ -96,7 +97,8 @@ void GameApp::setupDescriptorsAndPipelines() {
     auto irradianceInfo  = makeImgInfo(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, skyboxCubemap->getIrradianceImageView(), skyboxCubemap->getSampler());
     auto reflectionInfo  = makeImgInfo(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, engineWater->getReflectionImageView(), engineWater->getSampler());
     auto refractionInfo  = makeImgInfo(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, engineWater->getRefractionImageView(), engineWater->getSampler());
-        
+    auto prefilterInfo  = makeImgInfo(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, skyboxCubemap->getPrefilteredImageView(), skyboxCubemap->getSampler());  
+    
     // 디스크립터 세트 조립
     auto renderableView = registry.view<ModelComponent, MaterialComponent>();
     for (auto entity : renderableView) {
@@ -125,6 +127,7 @@ void GameApp::setupDescriptorsAndPipelines() {
                 .bindImage(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &skyboxInfo)
                 .bindImage(4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &irradianceInfo)
                 .bindBuffer(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, &boneInfo)
+                .bindImage(6, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &prefilterInfo)
                 .build(modelComp.mainSets[i]); // ★ i번째 공간에 저장!
 
             EngineDescriptorManager::Builder(*descriptorManager)
@@ -134,6 +137,7 @@ void GameApp::setupDescriptorsAndPipelines() {
                 .bindImage(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &skyboxInfo)
                 .bindImage(4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &irradianceInfo)
                 .bindBuffer(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, &boneInfo)
+                .bindImage(6, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &prefilterInfo)
                 .build(modelComp.reflectionSets[i]); // ★ i번째 공간에 저장!
 
             EngineDescriptorManager::Builder(*descriptorManager)
@@ -143,6 +147,7 @@ void GameApp::setupDescriptorsAndPipelines() {
                 .bindImage(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &skyboxInfo)
                 .bindImage(4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &irradianceInfo)
                 .bindBuffer(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, &boneInfo)
+                .bindImage(6, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &prefilterInfo)
                 .build(modelComp.refractionSets[i]); // ★ i번째 공간에 저장!
         }
     }

@@ -31,6 +31,8 @@ layout(set = 0, binding = 1) uniform sampler2D texSampler;
 layout(set = 0, binding = 2) uniform sampler2D shadowMap;
 layout(set = 0, binding = 3) uniform samplerCube environmentMap;
 layout(set = 0, binding = 4) uniform samplerCube irradianceMap;
+layout(set = 0, binding = 5) readonly buffer BoneBuffer { mat4 boneMatrices[]; } boneBuffer;
+layout(set = 0, binding = 6) uniform samplerCube prefilteredMap;
 
 layout(push_constant) uniform Push {
     mat4 modelMatrix;
@@ -207,39 +209,38 @@ void main() {
     vec3 kD_IBL = 1.0 - kS_IBL;
     kD_IBL *= 1.0 - metallic;
 
-    // 2. Diffuse IBL (환경의 빛이 난반사되어 묻어나는 색)
-    // [수정!] N으로 원본 이미지를 바로 샘플링하면 얼굴에 구름이 찍힙니다!
-    // 하늘의 꼭대기(위) 색상과 바닥(아래) 색상을 샘플링한 뒤, 부드럽게 그라데이션으로 섞어줍니다.
-    vec3 skyColor = texture(environmentMap, vec3(0.0, 1.0, 0.0)).rgb;
-    vec3 groundColor = texture(environmentMap, vec3(0.0, -1.0, 0.0)).rgb;
-    vec3 irradiance = texture(irradianceMap, N).rgb;
-    
+    // 2. Diffuse IBL (조도 맵)
+    vec3 irradiance = texture(irradianceMap, N).rgb; 
     vec3 diffuseIBL = irradiance * albedo;
 
-    // 3. Specular IBL (주변 환경이 거울처럼 비치는 색)
+    // 3. Specular IBL (사전 필터링 맵 + BRDF 근사 적용!)
     vec3 R = reflect(-V, N); 
-    // 우리는 현재 밉맵(Mipmap)이 없으므로 textureLod 대신 그냥 texture를 씁니다.
-    vec3 prefilteredColor = texture(environmentMap, R).rgb; 
+    const float MAX_REFLECTION_LOD = 4.0; // 밉맵 5단계 (0~4)
     
-    // [수정!] smoothstep을 사용하여 거칠기가 0.8 이상이면 반사광을 '완벽한 0.0'으로 증발시킵니다!
-    // (roughness가 0.3이면 반사도 1.0, 0.8이면 반사도 0.0이 됨)
-    float reflectionDampening = smoothstep(0.8, 0.3, roughness); 
+    // ★ 마법의 함수 textureLod! 거칠기에 비례해서 흐린 밉맵(0.0~4.0)을 쏙쏙 뽑아옵니다.
+    vec3 prefilteredColor = textureLod(prefilteredMap, R, roughness * MAX_REFLECTION_LOD).rgb;
     
-    vec3 specularIBL = prefilteredColor * kS_IBL * reflectionDampening;
+    // [Pro Tip] IBL 3신기의 마지막 'BRDF LUT' 텍스처를 굽는 대신, 
+    // 언리얼 엔진(Epic Games)에서 사용하는 수학적 근사 공식을 사용해 텍스처 메모리를 아낍니다!
+    float NdotV = max(dot(N, V), 0.0);
+    vec4 c0 = vec4(-1.0, -0.0275, -0.572, 0.022);
+    vec4 c1 = vec4(1.0, 0.0425, 1.04, -0.04);
+    vec4 r = roughness * c0 + c1;
+    float a004 = min(r.x * r.x, exp2(-9.28 * NdotV)) * r.x + r.y;
+    vec2 envBRDF = vec2(-1.04, 1.04) * a004 + r.zw;
 
-    // 4. 최종 Ambient = 하늘의 난반사 + 하늘의 정반사
+    // 프레넬(F0)과 환경 BRDF를 곱하여 최종 정반사광 완성
+    vec3 specularIBL = prefilteredColor * (F0 * envBRDF.x + vec3(envBRDF.y));
+
+    // 4. 최종 Ambient = 은은한 난반사 + 영롱한 거울 반사
     vec3 ambient = (kD_IBL * diffuseIBL + specularIBL) * ao;
-    //vec3 ambient = vec3(0.03) * albedo * ao;
+    
+    ambient *= 0.8; // 환경광 밝기 미세 조절
 
-    // 환경광이 너무 강하면 낮춰줍니다.
-    ambient *= 0.8;
+    // 그림자 적용하여 최종 색상 합성
+    vec3 color = ambient + Lo * (1.0 - shadow); 
 
-    // --- 최종 색상 합성 ---
-    // 태양/포인트 라이트의 누적빛(Lo)과 IBL 환경광(ambient)을 더합니다!
-    vec3 color = ambient + Lo * (1.0 - shadow);
-    //vec3 color = ambient + Lo;
-
-    // 톤 매핑 및 감마 복원 (기존 유지)
+    // 톤 매핑 및 감마 보정 (기존 유지)
     color = color / (color + vec3(1.0));
     color = pow(color, vec3(1.0/2.2));
 

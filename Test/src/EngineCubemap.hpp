@@ -19,6 +19,8 @@ public:
 
     VkImageView getIrradianceImageView() const { return irradianceImageView; }
 
+    VkImageView getPrefilteredImageView() const { return prefilteredImageView; }
+
 private:
     void createEmptyCubemap(uint32_t resolution, VkFormat format);
     void createCubemapImageView(VkFormat format);
@@ -38,4 +40,13 @@ private:
     VkImage irradianceImage = VK_NULL_HANDLE;
     VkDeviceMemory irradianceMemory = VK_NULL_HANDLE;
     VkImageView irradianceImageView = VK_NULL_HANDLE;
+
+    void createPrefilteredResources(uint32_t resolution);
+    void bakePrefilteredMap(uint32_t resolution);
+
+    VkImage prefilteredImage = VK_NULL_HANDLE;
+    VkDeviceMemory prefilteredMemory = VK_NULL_HANDLE;
+    VkImageView prefilteredImageView = VK_NULL_HANDLE;
+    
+    const uint32_t maxMipLevels = 5;
 };
