@@ -161,6 +161,15 @@ void GameApp::run() {
     int frameCount = 0;
     float timePassed = 0.0f;
 
+    auto parallelFor = [&](size_t totalElements, size_t chunkSize, std::function<void(size_t, size_t)> action) {
+        for (size_t i = 0; i < totalElements; i += chunkSize) {
+            size_t end = std::min(i + chunkSize, totalElements);
+            threadPool->enqueue([action, i, end]() {
+                action(i, end); // 쪼개진 구간을 스레드가 실행
+            });
+        }
+    };
+
     while (!window.shouldClose()) {
         window.pollEvents();
 
@@ -220,18 +229,19 @@ void GameApp::run() {
         }
 
         auto animView = registry.view<AnimatorComponent>();
-        for (auto entity : animView) {
-            auto& animComp = animView.get<AnimatorComponent>(entity);
-            if (animComp.animator) {
-                // (선택) 여기서 특정 조건에 따라 playAnimation을 호출할 수도 있습니다.
-                // 지금은 이미 생성자에서 idle을 세팅했으므로 업데이트만 해줍니다.
-                animComp.animator->updateAnimation(frameTime); 
-
-                auto& transforms = animComp.animator->getFinalBoneMatrices();
-                for (int i = 0; i < std::min((int)transforms.size(), MAX_BONES); i++) {
-                    uboMain.finalBonesMatrices[i] = transforms[i];
+        std::vector<entt::entity> animEntities(animView.begin(), animView.end());
+        
+        if (!animEntities.empty()) {
+            // 애니메이션은 연산이 무거우므로 10개 단위(Chunk)로 스레드에 분배합니다.
+            parallelFor(animEntities.size(), 10, [&](size_t start, size_t end) {
+                for (size_t i = start; i < end; ++i) {
+                    auto entity = animEntities[i];
+                    auto& animComp = animView.get<AnimatorComponent>(entity);
+                    if (animComp.animator) {
+                        animComp.animator->updateAnimation(frameTime); 
+                    }
                 }
-            }
+            });
         }
 
         int lightCount = 0;
@@ -252,7 +262,53 @@ void GameApp::run() {
             waterHeight = waterView.get<WaterComponent>(waterView.front()).height;
         }
 
+        //프러스텀 컬링
+        auto frustumPlanes = camera.getFrustumPlanes();
+        auto cullView = registry.view<CullingComponent, BoundingSphereComponent, TransformComponent>();
+        std::vector<entt::entity> cullEntities(cullView.begin(), cullView.end());
 
+        if (!cullEntities.empty()) {
+            // 컬링은 비교적 가벼운 수학 연산이므로 100개 단위로 묶어서 스레드에 던집니다.
+            parallelFor(cullEntities.size(), 100, [&](size_t start, size_t end) {
+                for (size_t j = start; j < end; ++j) {
+                    auto entity = cullEntities[j];
+                    auto& transform = cullView.get<TransformComponent>(entity);
+                    auto& sphere = cullView.get<BoundingSphereComponent>(entity);
+                    auto& cull = cullView.get<CullingComponent>(entity);
+
+                    glm::vec3 center = glm::vec3(transform.mat4() * glm::vec4(sphere.offset, 1.0f));
+                    float maxScale = std::max({transform.scale.x, transform.scale.y, transform.scale.z});
+                    float radius = sphere.radius * maxScale * 1.5f; // 안전 마진!
+
+                    cull.isVisible = true;
+                    for (const auto& plane : frustumPlanes) {
+                        if (glm::dot(plane.normal, center) + plane.distance < -radius) {
+                            cull.isVisible = false; 
+                            break;
+                        }
+                    }
+                }
+            });
+        }
+        
+        // 모든 워커 스레드가 컬링 계산을 마칠 때까지 대기합니다.
+        threadPool->waitAll();
+        // =======================================================
+
+        // =======================================================
+        // [2-4] UBO 데이터 갱신 (메인 스레드)
+        // =======================================================
+        for (auto entity : animEntities) {
+            auto& animComp = animView.get<AnimatorComponent>(entity);
+            if (animComp.animator) {
+                auto& transforms = animComp.animator->getFinalBoneMatrices();
+                for (int i = 0; i < std::min((int)transforms.size(), MAX_BONES); i++) {
+                    uboMain.finalBonesMatrices[i] = transforms[i];
+                }
+            }
+        }
+
+        //반사 및 굴절 카메라 UBO 세팅 (뼈대 데이터 포함)
         GlobalUbo uboRefraction = uboMain;
         uboRefraction.clipPlane = glm::vec4(0.0f, -1.0f, 0.0f, waterHeight + 0.1f);
 
@@ -272,49 +328,6 @@ void GameApp::run() {
         uboBufferRefraction->writeToBuffer(&uboRefraction);
         uboBufferReflection->writeToBuffer(&uboReflection);
 
-        auto frustumPlanes = camera.getFrustumPlanes();
-        
-        // CullingComponent와 BoundingSphere, Transform을 가진 모든 엔티티 뷰 추출
-        auto cullView = registry.view<CullingComponent, BoundingSphereComponent, TransformComponent>();
-        
-        // 엔티티들을 배열로 모아서 청크(Chunk) 단위로 나눕니다.
-        std::vector<entt::entity> entities(cullView.begin(), cullView.end());
-        size_t chunkSize = 100; // 한 스레드가 처리할 오브젝트 개수
-        
-        for (size_t i = 0; i < entities.size(); i += chunkSize) {
-            size_t end = std::min(i + chunkSize, entities.size());
-            
-            // ★ 스레드 풀에 컬링 작업을 던집니다! (비동기 병렬 처리)
-            threadPool->enqueue([&, i, end]() {
-                for (size_t j = i; j < end; ++j) {
-                    auto entity = entities[j];
-                    auto& transform = cullView.get<TransformComponent>(entity);
-                    auto& sphere = cullView.get<BoundingSphereComponent>(entity);
-                    auto& cull = cullView.get<CullingComponent>(entity);
-
-                    // 월드 좌표 적용된 중심점과 반지름 계산
-                    glm::vec3 center = glm::vec3(transform.mat4() * glm::vec4(sphere.offset, 1.0f));
-                    // 스케일 중 가장 큰 값을 곱해줍니다
-                    float maxScale = std::max({transform.scale.x, transform.scale.y, transform.scale.z});
-                    float radius = sphere.radius * maxScale * 1.5f;
-
-                    cull.isVisible = true;
-
-                    // 6개의 평면 중 하나라도 구체가 완전히 뒤쪽에 있으면 컬링(제외)!
-                    for (const auto& plane : frustumPlanes) {
-                        float distance = glm::dot(plane.normal, center) + plane.distance;
-                        if (distance < -radius) {
-                            cull.isVisible = false; // 안 보임!
-                            break;
-                        }
-                    }
-                }
-            });
-        }
-        
-        // 모든 워커 스레드가 컬링 계산을 마칠 때까지 대기합니다.
-        threadPool->waitAll();
-        // =======================================================
 
         // =======================================================
         // [3] 대망의 렌더링 시작! (복잡한 펜스, 이미지 획득이 증발했습니다!)
@@ -493,6 +506,9 @@ void GameApp::loadSceneFromJSON(const std::string& filepath) {
                             // AnimatorComponent 생성자를 통해 애니메이션 세팅!
                             registry.emplace<AnimatorComponent>(entity, idleAnim);
                             
+                            auto& sphere = registry.get<BoundingSphereComponent>(entity);
+                            sphere.radius *= 100.0f;
+
                             std::cout << "  - 애니메이션 로드 및 부착 완료: " << idlePath << std::endl;
                         }
                     }
