@@ -35,6 +35,7 @@
 
 const int MAX_BONES = 100;
 const int MAX_POINT_LIGHTS = 10;
+const int MAX_FRAMES_IN_FLIGHT = 2;
 
 struct PointLight {
     alignas(16) glm::vec4 position;
@@ -99,13 +100,14 @@ private:
 
     // --- 3. 에셋 및 버퍼 ---
     std::unique_ptr<EngineCubemap> skyboxCubemap;
-    std::unique_ptr<EngineBuffer> uboBufferMain;
-    std::unique_ptr<EngineBuffer> uboBufferReflection;
-    std::unique_ptr<EngineBuffer> uboBufferRefraction;
+    
+    std::vector<std::unique_ptr<EngineBuffer>> uboBuffersMain;
+    std::vector<std::unique_ptr<EngineBuffer>> uboBuffersReflection;
+    std::vector<std::unique_ptr<EngineBuffer>> uboBuffersRefraction;
 
     std::unique_ptr<AssetManager> assetManager;
 
-    std::unique_ptr<EngineBuffer> boneSSBO;
+    std::vector<std::unique_ptr<EngineBuffer>> boneSSBOs;
 
     // --- 4. 게임 로직 시스템 ---
     entt::registry registry;
@@ -118,5 +120,7 @@ private:
     std::unique_ptr<EngineParticleSystem> particleSystem;
 
     std::unique_ptr<EngineThreadPool> threadPool;
+
+    int currentFrame = 0;
 };
 

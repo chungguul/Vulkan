@@ -25,7 +25,7 @@ public:
     SimpleRenderSystem &operator=(const SimpleRenderSystem &) = delete;
 
     // ★ 핵심 함수: 게임 로직이 넘겨준 registry(엔티티 목록)를 읽어서 화면에 그립니다.
-    void renderGameObjects(VkCommandBuffer commandBuffer, entt::registry& registry, RenderPassType passType = RenderPassType::MAIN);
+    void renderGameObjects(VkCommandBuffer commandBuffer, entt::registry& registry, RenderPassType passType, int frameIndex);
     VkPipelineLayout getPipelineLayout() const { return pipelineLayout; }
 
 private:
@@ -35,4 +35,5 @@ private:
     EngineDevice& engineDevice;
     std::unique_ptr<EnginePipeline> enginePipeline;
     VkPipelineLayout pipelineLayout;
+
 };

@@ -10,7 +10,7 @@ public:
     EngineWaterSystem(EngineDevice& device, VkRenderPass renderPass, VkDescriptorSetLayout waterSetLayout);
     ~EngineWaterSystem() = default;
 
-    void render(VkCommandBuffer commandBuffer, entt::registry& registry);
+    void render(VkCommandBuffer commandBuffer, entt::registry& registry, int frameIndex);
     
 private:
     void createPipeline(VkRenderPass renderPass, VkDescriptorSetLayout waterSetLayout);

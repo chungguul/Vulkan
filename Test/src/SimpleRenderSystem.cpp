@@ -46,16 +46,15 @@ void SimpleRenderSystem::createPipeline(VkRenderPass renderPass) {
         pipelineConfig);
 }
 
-void SimpleRenderSystem::renderGameObjects(VkCommandBuffer commandBuffer, entt::registry& registry, RenderPassType passType) {
+void SimpleRenderSystem::renderGameObjects(VkCommandBuffer commandBuffer, entt::registry& registry, RenderPassType passType, int frameIndex) {
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, enginePipeline->getPipeline());
 
-    //auto view = registry.view<TransformComponent, ModelComponent>();
     auto view = registry.view<TransformComponent, ModelComponent, MaterialComponent>(entt::exclude<WaterComponent>);
     for (auto entity : view) {
 
         if (registry.any_of<CullingComponent>(entity)) {
-        auto& cull = registry.get<CullingComponent>(entity);
-        if (!cull.isVisible) continue; // ★ 안 보이면 Draw Call 생략! GPU 해방!
+            auto& cull = registry.get<CullingComponent>(entity);
+            if (!cull.isVisible) continue; 
         }
 
         auto &transform = view.get<TransformComponent>(entity);
@@ -66,21 +65,23 @@ void SimpleRenderSystem::renderGameObjects(VkCommandBuffer commandBuffer, entt::
         push.roughness = modelComp.roughness;
         push.metallic = modelComp.metallic;
 
-        push.characterIndex = 0; // 정적 사물은 기본값 0
+        push.characterIndex = 0; 
         if (registry.all_of<AnimatorComponent>(entity)) {
             push.characterIndex = registry.get<AnimatorComponent>(entity).characterIndex;
         }
 
         vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(SimplePushConstantData), &push);                
         
-        // ★ 추가: passType에 따라 알맞은 디스크립터 세트를 고릅니다!
+        // =======================================================
+        // ★ [수정됨] 단일 세트가 아닌, 다중 프레임 배열에서 [frameIndex]로 꺼내옵니다!
+        // =======================================================
         VkDescriptorSet setToBind = VK_NULL_HANDLE;
         if (passType == RenderPassType::MAIN) {
-            setToBind = modelComp.mainSet;
+            setToBind = modelComp.mainSets[frameIndex];       // ★ mainSets 배열
         } else if (passType == RenderPassType::REFLECTION) {
-            setToBind = modelComp.reflectionSet;
+            setToBind = modelComp.reflectionSets[frameIndex]; // ★ reflectionSets 배열
         } else if (passType == RenderPassType::REFRACTION) {
-            setToBind = modelComp.refractionSet;
+            setToBind = modelComp.refractionSets[frameIndex]; // ★ refractionSets 배열
         }
 
         // 고른 세트를 바인딩!

@@ -22,7 +22,7 @@ void EngineShadowSystem::createPipeline(VkRenderPass renderPass, VkDescriptorSet
     pipeline = std::make_unique<EnginePipeline>(engineDevice, "../Test/shaders/shadow.vert.spv", "../Test/shaders/shadow.frag.spv", pipelineConfig);
 }
 
-void EngineShadowSystem::render(VkCommandBuffer commandBuffer, entt::registry& registry) {
+void EngineShadowSystem::render(VkCommandBuffer commandBuffer, entt::registry& registry, int frameIndex) {
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->getPipeline());
 
     auto view = registry.view<TransformComponent, ModelComponent>();
@@ -39,8 +39,7 @@ void EngineShadowSystem::render(VkCommandBuffer commandBuffer, entt::registry& r
         }
 
         vkCmdPushConstants(commandBuffer, pipeline->getPipelineLayout(), VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(SimplePushConstantData), &push);
-        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->getPipelineLayout(), 0, 1, &modelComp.mainSet, 0, nullptr);
-
+        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->getPipelineLayout(), 0, 1, &modelComp.mainSets[frameIndex], 0, nullptr);
         modelComp.model->bind(commandBuffer);
         modelComp.model->draw(commandBuffer);
     }

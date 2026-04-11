@@ -22,22 +22,31 @@ GameApp::GameApp() {
     physicsEngine.createFloor();
 
     // 1-3. UBO 버퍼 생성 및 매핑
-    uboBufferMain = std::make_unique<EngineBuffer>(device, sizeof(GlobalUbo), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-    uboBufferMain->map();
-    uboBufferReflection = std::make_unique<EngineBuffer>(device, sizeof(GlobalUbo), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-    uboBufferReflection->map();
-    uboBufferRefraction = std::make_unique<EngineBuffer>(device, sizeof(GlobalUbo), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-    uboBufferRefraction->map();
+    uboBuffersMain.resize(MAX_FRAMES_IN_FLIGHT);
+    uboBuffersReflection.resize(MAX_FRAMES_IN_FLIGHT);
+    uboBuffersRefraction.resize(MAX_FRAMES_IN_FLIGHT);
+    boneSSBOs.resize(MAX_FRAMES_IN_FLIGHT);
 
-    //뼈대 전용 SSBO 생성
     uint32_t maxCharacters = 1000;
-    boneSSBO = std::make_unique<EngineBuffer>(
-        device, 
-        sizeof(glm::mat4) * MAX_BONES * maxCharacters, 
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, 
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-    );
-    boneSSBO->map();
+
+    for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+        uboBuffersMain[i] = std::make_unique<EngineBuffer>(device, sizeof(GlobalUbo), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        uboBuffersMain[i]->map();
+        
+        uboBuffersReflection[i] = std::make_unique<EngineBuffer>(device, sizeof(GlobalUbo), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        uboBuffersReflection[i]->map();
+        
+        uboBuffersRefraction[i] = std::make_unique<EngineBuffer>(device, sizeof(GlobalUbo), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        uboBuffersRefraction[i]->map();
+
+        boneSSBOs[i] = std::make_unique<EngineBuffer>(
+            device, 
+            sizeof(glm::mat4) * MAX_BONES * maxCharacters, 
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, 
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+        );
+        boneSSBOs[i]->map();
+    }
 
     // 1-4. 텍스처 및 스카이박스 로딩
     std::cout << "코어 에셋 로딩 중..." << std::endl;
@@ -86,68 +95,78 @@ void GameApp::setupDescriptorsAndPipelines() {
     auto reflectionInfo  = makeImgInfo(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, engineWater->getReflectionImageView(), engineWater->getSampler());
     auto refractionInfo  = makeImgInfo(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, engineWater->getRefractionImageView(), engineWater->getSampler());
         
-    // 버퍼 정보
-    auto uboInfoMain = uboBufferMain->descriptorInfo();
-    auto uboInfoReflection = uboBufferReflection->descriptorInfo();
-    auto uboInfoRefraction = uboBufferRefraction->descriptorInfo();
-    VkDescriptorBufferInfo boneInfo{boneSSBO->getBuffer(), 0, VK_WHOLE_SIZE};
-
     // 디스크립터 세트 조립
     auto renderableView = registry.view<ModelComponent, MaterialComponent>();
     for (auto entity : renderableView) {
         auto &modelComp = renderableView.get<ModelComponent>(entity);
         auto &matComp = renderableView.get<MaterialComponent>(entity);
 
-        // 1. 컴포넌트에 적힌 이름표를 보고 AssetManager에서 텍스처를 꺼내옵니다.
+        // ★ [NEW] 디스크립터 세트를 담을 배열의 크기를 2(MAX_FRAMES_IN_FLIGHT)로 늘려줍니다!
+        modelComp.mainSets.resize(MAX_FRAMES_IN_FLIGHT);
+        modelComp.reflectionSets.resize(MAX_FRAMES_IN_FLIGHT);
+        modelComp.refractionSets.resize(MAX_FRAMES_IN_FLIGHT);
+
         auto albedoTex = assetManager->getTexture(matComp.albedoTexture);
         auto albedoInfo = makeImgInfo(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, albedoTex->getImageView(), albedoTex->getSampler());
 
-        // 2. Main 디스크립터 조립
-        EngineDescriptorManager::Builder(*descriptorManager)
-            .bindBuffer(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &uboInfoMain)
-            .bindImage(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &albedoInfo) // ★ 동적 할당!
-            .bindImage(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &shadowImageInfo)
-            .bindImage(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &skyboxInfo)
-            .bindBuffer(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, &boneInfo)
-            .build(modelComp.mainSet);
+        // ★ [NEW] 2개의 프레임 각각에 대해 UBO와 SSBO 정보를 묶어줍니다!
+        for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+            auto uboInfoMain       = uboBuffersMain[i]->descriptorInfo();
+            auto uboInfoReflection = uboBuffersReflection[i]->descriptorInfo();
+            auto uboInfoRefraction = uboBuffersRefraction[i]->descriptorInfo();
+            VkDescriptorBufferInfo boneInfo{boneSSBOs[i]->getBuffer(), 0, VK_WHOLE_SIZE};
 
-        // 3. 반사(Reflection) 디스크립터 조립
-        EngineDescriptorManager::Builder(*descriptorManager)
-            .bindBuffer(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &uboInfoReflection)
-            .bindImage(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &albedoInfo)
-            .bindImage(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &shadowImageInfo)
-            .bindBuffer(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, &boneInfo)
-            .build(modelComp.reflectionSet);
+            EngineDescriptorManager::Builder(*descriptorManager)
+                .bindBuffer(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &uboInfoMain)
+                .bindImage(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &albedoInfo) 
+                .bindImage(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &shadowImageInfo)
+                .bindImage(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &skyboxInfo)
+                .bindBuffer(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, &boneInfo)
+                .build(modelComp.mainSets[i]); // ★ i번째 공간에 저장!
 
-        // 4. 굴절(Refraction) 디스크립터 조립
-        EngineDescriptorManager::Builder(*descriptorManager)
-            .bindBuffer(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &uboInfoRefraction)
-            .bindImage(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &albedoInfo)
-            .bindImage(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &shadowImageInfo)
-            .bindBuffer(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, &boneInfo)
-            .build(modelComp.refractionSet);
+            EngineDescriptorManager::Builder(*descriptorManager)
+                .bindBuffer(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &uboInfoReflection)
+                .bindImage(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &albedoInfo)
+                .bindImage(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &shadowImageInfo)
+                .bindBuffer(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, &boneInfo)
+                .build(modelComp.reflectionSets[i]); // ★ i번째 공간에 저장!
+
+            EngineDescriptorManager::Builder(*descriptorManager)
+                .bindBuffer(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &uboInfoRefraction)
+                .bindImage(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &albedoInfo)
+                .bindImage(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &shadowImageInfo)
+                .bindBuffer(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, &boneInfo)
+                .build(modelComp.refractionSets[i]); // ★ i번째 공간에 저장!
+        }
     }
 
     auto waterView = registry.view<WaterComponent>();
     for (auto entity : waterView) {
         auto& water = waterView.get<WaterComponent>(entity);
         
+        // ★ [NEW] 물 전용 디스크립터 배열 크기 확보
+        water.waterSets.resize(MAX_FRAMES_IN_FLIGHT);
+        
         auto dudvTex   = assetManager->getTexture(water.dudvTexture);
         auto normalTex = assetManager->getTexture(water.normalTexture);
 
         auto dudvInfo   = makeImgInfo(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, dudvTex->getImageView(), dudvTex->getSampler());
         auto normalInfo = makeImgInfo(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, normalTex->getImageView(), normalTex->getSampler());
-
         auto depthInfo  = makeImgInfo(VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, engineWater->getRefractionDepthView(), engineWater->getSampler());
 
-        EngineDescriptorManager::Builder(*descriptorManager)
-            .bindBuffer(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &uboInfoMain)
-            .bindImage(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &reflectionInfo)
-            .bindImage(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &refractionInfo)
-            .bindImage(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &dudvInfo)   
-            .bindImage(4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &normalInfo) 
-            .bindImage(5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &depthInfo)
-            .build(water.waterSet);
+        // ★ [NEW] 2개의 프레임 각각에 대해 조립!
+        for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+            auto uboInfoMain = uboBuffersMain[i]->descriptorInfo(); // 물 렌더링 시에는 메인 UBO를 사용합니다.
+
+            EngineDescriptorManager::Builder(*descriptorManager)
+                .bindBuffer(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &uboInfoMain)
+                .bindImage(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &reflectionInfo)
+                .bindImage(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &refractionInfo)
+                .bindImage(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &dudvInfo)   
+                .bindImage(4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &normalInfo) 
+                .bindImage(5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &depthInfo)
+                .build(water.waterSets[i]); // ★ i번째 공간에 저장!
+        }
     }
 
 
@@ -161,10 +180,34 @@ void GameApp::setupDescriptorsAndPipelines() {
     shadowSystem = std::make_unique<EngineShadowSystem>(device, engineShadow->getRenderPass(), globalSetLayout);
     waterRenderSystem = std::make_unique<EngineWaterSystem>(device, engineRenderer->getSwapChainRenderPass(), waterSetLayout);
 
-    std::vector<VkBuffer> uboBufferArray = {uboBufferMain->getBuffer()};
-    engineSkybox = std::make_unique<EngineSkybox>(device, engineRenderer->getSwapChainRenderPass(), WIDTH, HEIGHT, *skyboxCubemap, globalSetLayout, uboBufferArray, sizeof(GlobalUbo));
+    // ==========================================================
+    // ★ 1. 스카이박스: 2개의 프레임 버퍼를 모두 배열에 담아 전달!
+    // ==========================================================
+    std::vector<VkBuffer> uboBufferArray(MAX_FRAMES_IN_FLIGHT);
+    for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+        uboBufferArray[i] = uboBuffersMain[i]->getBuffer();
+    }
 
-    particleSystem = std::make_unique<EngineParticleSystem>(device, *engineRenderer, *descriptorManager, *uboBufferMain);
+    engineSkybox = std::make_unique<EngineSkybox>(
+        device, 
+        engineRenderer->getSwapChainRenderPass(), 
+        WIDTH, HEIGHT, 
+        *skyboxCubemap, 
+        globalSetLayout, 
+        uboBufferArray, // 이제 크기가 2인 배열이 들어갑니다!
+        sizeof(GlobalUbo)
+    );
+
+    // ==========================================================
+    // ★ 2. 파티클 시스템: 전체 버퍼 배열을 전달하도록 수정
+    // ==========================================================
+    particleSystem = std::make_unique<EngineParticleSystem>(
+        device, 
+        *engineRenderer, 
+        *descriptorManager, 
+        uboBuffersMain // (주의) 단일 객체가 아닌 vector 전체를 넘깁니다!
+    );
+
 }
 
 // ==========================================================
@@ -174,26 +217,23 @@ void GameApp::run() {
     std::cout << "엔진 루프 진입 중..." << std::endl;
     auto currentTime = std::chrono::high_resolution_clock::now();
     float totalTime = 0.0f;
-    const float targetFrameTime = 1.0f / 240.0f;
 
-    // ★ FPS 측정을 위한 변수 추가
     int frameCount = 0;
     float timePassed = 0.0f;
 
     auto parallelFor = [&](size_t totalElements, size_t chunkSize, std::function<void(size_t, size_t)> action) {
         for (size_t i = 0; i < totalElements; i += chunkSize) {
             size_t end = std::min(i + chunkSize, totalElements);
-            threadPool->enqueue([action, i, end]() {
-                action(i, end); // 쪼개진 구간을 스레드가 실행
-            });
+            threadPool->enqueue([action, i, end]() { action(i, end); });
         }
     };
 
     while (!window.shouldClose()) {
         window.pollEvents();
+        // ★ [삭제됨] GPU 강제 대기(vkDeviceWaitIdle)가 사라졌습니다!
 
         // =======================================================
-        // [1] 물리 및 로직 업데이트 (기존과 100% 동일)
+        // [1] 물리 및 로직 업데이트 (GPU와 무관하게 CPU가 100% 속도로 달립니다)
         // =======================================================
         auto newTime = std::chrono::high_resolution_clock::now();
         float frameTime = std::chrono::duration<float, std::chrono::seconds::period>(newTime - currentTime).count();
@@ -203,12 +243,10 @@ void GameApp::run() {
         frameCount++;
         timePassed += frameTime;
         if (timePassed >= 1.0f) {
-            std::string title = "My Vulkan Engine | FPS: " + std::to_string(frameCount) 
-                              + " | Frame Time: " + std::to_string(1000.0f / frameCount) + " ms";
+            std::string title = "My Vulkan Engine | FPS: " + std::to_string(frameCount) + " | Frame Time: " + std::to_string(1000.0f / frameCount) + " ms";
             glfwSetWindowTitle(window.getGLFWwindow(), title.c_str());
-            
             frameCount = 0;
-            timePassed -= 1.0f; // 오차를 줄이기 위해 0 대신 1.0을 빼줍니다.
+            timePassed -= 1.0f; 
         }
 
         physicsEngine.update(frameTime);
@@ -227,146 +265,119 @@ void GameApp::run() {
         camera.setViewTarget(viewTrans.translation, viewTrans.translation + lookDirection);
         camera.setPerspectiveProjection(glm::radians(50.f), engineRenderer->getAspectRatio(), 0.1f, 1000.f);
 
-        // [2] UBO 갱신 (뼈대 및 조명 연산)
-        GlobalUbo uboMain{};
-        uboMain.view = camera.getView();
-        uboMain.proj = camera.getProjection();
-        uboMain.proj[1][1] *= -1.0f;
-        uboMain.projectionView = uboMain.proj * uboMain.view;
-        uboMain.time = totalTime;
-        uboMain.clipPlane = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
-        uboMain.lightDirection = glm::normalize(glm::vec3(0.5f, -3.0f, 1.0f));
-        uboMain.lightSpaceMatrix = glm::ortho(-50.0f, 50.0f, -50.0f, 50.0f, 0.1f, 150.0f) * 
-                                   glm::lookAt(-uboMain.lightDirection * 50.0f, glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-        uboMain.lightSpaceMatrix[1][1] *= -1.0f;
-
-        auto ragdollView = registry.view<TransformComponent, RagdollComponent, ModelComponent>();
-        for (auto entity : ragdollView) {
-            auto &transform = ragdollView.get<TransformComponent>(entity);
-            auto &ragdoll = ragdollView.get<RagdollComponent>(entity);
-            auto &modelComp = ragdollView.get<ModelComponent>(entity);
-            //physicsEngine.syncRagdollBones(ragdoll.ragdollID, modelComp.model->getBoneInfoMap(), uboMain.finalBonesMatrices, transform.translation, transform.rotation);
-        }
-
-        auto animView = registry.view<AnimatorComponent>();
-        std::vector<entt::entity> animEntities(animView.begin(), animView.end());
-        
-        if (!animEntities.empty()) {
-            // 애니메이션은 연산이 무거우므로 10개 단위(Chunk)로 스레드에 분배합니다.
-            parallelFor(animEntities.size(), 10, [&](size_t start, size_t end) {
-                for (size_t i = start; i < end; ++i) {
-                    auto entity = animEntities[i];
-                    auto& animComp = animView.get<AnimatorComponent>(entity);
-                    if (animComp.animator) {
-                        animComp.animator->updateAnimation(frameTime); 
-                    }
-                }
-            });
-        }
-
-        int lightCount = 0;
-        auto lightView = registry.view<TransformComponent, PointLightComponent>();
-        for (auto entity : lightView) {
-            if (lightCount >= MAX_POINT_LIGHTS) break;
-            auto &transform = lightView.get<TransformComponent>(entity);
-            auto &pointLight = lightView.get<PointLightComponent>(entity);
-            uboMain.pointLights[lightCount].position = glm::vec4(transform.translation, pointLight.intensity);
-            uboMain.pointLights[lightCount].color = glm::vec4(pointLight.color, 1.0f); 
-            lightCount++;
-        }
-        uboMain.numPointLights = lightCount;
-
-        float waterHeight = 0.0f;
-        auto waterView = registry.view<WaterComponent>();
-        if (!waterView.empty()) {
-            waterHeight = waterView.get<WaterComponent>(waterView.front()).height;
-        }
-
-        //프러스텀 컬링
-        auto frustumPlanes = camera.getFrustumPlanes();
-        auto cullView = registry.view<CullingComponent, BoundingSphereComponent, TransformComponent>();
-        std::vector<entt::entity> cullEntities(cullView.begin(), cullView.end());
-
-        if (!cullEntities.empty()) {
-            // 컬링은 비교적 가벼운 수학 연산이므로 100개 단위로 묶어서 스레드에 던집니다.
-            parallelFor(cullEntities.size(), 100, [&](size_t start, size_t end) {
-                for (size_t j = start; j < end; ++j) {
-                    auto entity = cullEntities[j];
-                    auto& transform = cullView.get<TransformComponent>(entity);
-                    auto& sphere = cullView.get<BoundingSphereComponent>(entity);
-                    auto& cull = cullView.get<CullingComponent>(entity);
-
-                    glm::vec3 center = glm::vec3(transform.mat4() * glm::vec4(sphere.offset, 1.0f));
-                    float maxScale = std::max({transform.scale.x, transform.scale.y, transform.scale.z});
-                    float radius = sphere.radius * maxScale * 1.5f; // 안전 마진!
-
-                    cull.isVisible = true;
-                    for (const auto& plane : frustumPlanes) {
-                        if (glm::dot(plane.normal, center) + plane.distance < -radius) {
-                            cull.isVisible = false; 
-                            break;
-                        }
-                    }
-                }
-            });
-        }
-        
-        // 모든 워커 스레드가 컬링 계산을 마칠 때까지 대기합니다.
-        threadPool->waitAll();
         // =======================================================
-
-        // =======================================================
-        // [2-4] 뼈대 데이터 SSBO에 복사
-        // =======================================================
-        int currentCharacterIndex = 0; // 0번 캐릭터부터 시작
-        for (auto entity : animEntities) {
-            auto& animComp = animView.get<AnimatorComponent>(entity);
-            if (animComp.animator) {
-                auto& transforms = animComp.animator->getFinalBoneMatrices();
-                
-                // 1. UBO가 아닌 거대한 SSBO의 '내 자리'에 뼈대(최대 100개)를 복사합니다!
-                // writeToBuffer(데이터, 복사할 크기, 시작 오프셋)
-                boneSSBO->writeToBuffer(
-                    (void*)transforms.data(), 
-                    sizeof(glm::mat4) * transforms.size(), 
-                    sizeof(glm::mat4) * MAX_BONES * currentCharacterIndex
-                );
-                
-                // 2. 내가 몇 번 캐릭터인지 명찰에 적어둡니다.
-                animComp.characterIndex = currentCharacterIndex;
-                
-                currentCharacterIndex++; // 다음 캐릭터는 다음 칸으로!
-            }
-        }
-        //반사 및 굴절 카메라 UBO 세팅 (뼈대 데이터 포함)
-        GlobalUbo uboRefraction = uboMain;
-        uboRefraction.clipPlane = glm::vec4(0.0f, -1.0f, 0.0f, waterHeight + 0.1f);
-
-        GlobalUbo uboReflection = uboMain;
-        glm::vec3 refViewPos = viewTrans.translation;
-        refViewPos.y -= 2.0f * (refViewPos.y - waterHeight); 
-        glm::vec3 refTargetPos = koroneTrans.translation;
-        refTargetPos.y -= 2.0f * (refTargetPos.y - waterHeight); 
-        
-        EngineCamera reflectionCamera{};
-        reflectionCamera.setViewTarget(refViewPos, refTargetPos);
-        uboReflection.view = reflectionCamera.getView();
-        uboReflection.projectionView = uboReflection.proj * uboReflection.view;
-        uboReflection.clipPlane = glm::vec4(0.0f, 1.0f, 0.0f, -waterHeight + 0.1f);
-
-        uboBufferMain->writeToBuffer(&uboMain);
-        uboBufferRefraction->writeToBuffer(&uboRefraction);
-        uboBufferReflection->writeToBuffer(&uboReflection);
-
-
-        // =======================================================
-        // [3] 대망의 렌더링 시작! (복잡한 펜스, 이미지 획득이 증발했습니다!)
+        // ★ [2] 대망의 다중 프레임 렌더링 시작!
         // =======================================================
         if (auto commandBuffer = engineRenderer->beginFrame()) {
-            //particle
-            particleSystem->computeParticles(commandBuffer, frameTime);
+            // ★ 핵심: beginFrame() 내부의 Fence가 대기를 끝냈습니다.
+            // 즉, GPU는 이 frameIndex 번호의 쟁반 사용을 완전히 끝냈으므로 덮어써도 안전합니다!
+            int frameIndex = currentFrame;
+
+            // [2-1] UBO 데이터 계산
+            GlobalUbo uboMain{};
+            uboMain.view = camera.getView();
+            uboMain.proj = camera.getProjection();
+            uboMain.proj[1][1] *= -1.0f;
+            uboMain.projectionView = uboMain.proj * uboMain.view;
+            uboMain.time = totalTime;
+            uboMain.clipPlane = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+            uboMain.lightDirection = glm::normalize(glm::vec3(0.5f, -3.0f, 1.0f));
+            uboMain.lightSpaceMatrix = glm::ortho(-50.0f, 50.0f, -50.0f, 50.0f, 0.1f, 150.0f) * glm::lookAt(-uboMain.lightDirection * 50.0f, glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+            uboMain.lightSpaceMatrix[1][1] *= -1.0f;
+
+            int lightCount = 0;
+            auto lightView = registry.view<TransformComponent, PointLightComponent>();
+            for (auto entity : lightView) {
+                if (lightCount >= MAX_POINT_LIGHTS) break;
+                auto &transform = lightView.get<TransformComponent>(entity);
+                auto &pointLight = lightView.get<PointLightComponent>(entity);
+                uboMain.pointLights[lightCount].position = glm::vec4(transform.translation, pointLight.intensity);
+                uboMain.pointLights[lightCount].color = glm::vec4(pointLight.color, 1.0f); 
+                lightCount++;
+            }
+            uboMain.numPointLights = lightCount;
+
+            // [2-2] 멀티스레드 연산 (애니메이션, 컬링)
+            auto animView = registry.view<AnimatorComponent>();
+            std::vector<entt::entity> animEntities(animView.begin(), animView.end());
+            if (!animEntities.empty()) {
+                parallelFor(animEntities.size(), 10, [&](size_t start, size_t end) {
+                    for (size_t i = start; i < end; ++i) {
+                        auto entity = animEntities[i];
+                        auto& animComp = animView.get<AnimatorComponent>(entity);
+                        if (animComp.animator) animComp.animator->updateAnimation(frameTime); 
+                    }
+                });
+            }
+
+            auto frustumPlanes = camera.getFrustumPlanes();
+            auto cullView = registry.view<CullingComponent, BoundingSphereComponent, TransformComponent>();
+            std::vector<entt::entity> cullEntities(cullView.begin(), cullView.end());
+            if (!cullEntities.empty()) {
+                parallelFor(cullEntities.size(), 100, [&](size_t start, size_t end) {
+                    for (size_t j = start; j < end; ++j) {
+                        auto entity = cullEntities[j];
+                        auto& transform = cullView.get<TransformComponent>(entity);
+                        auto& sphere = cullView.get<BoundingSphereComponent>(entity);
+                        auto& cull = cullView.get<CullingComponent>(entity);
+                        glm::vec3 center = glm::vec3(transform.mat4() * glm::vec4(sphere.offset, 1.0f));
+                        float maxScale = std::max({transform.scale.x, transform.scale.y, transform.scale.z});
+                        float radius = sphere.radius * maxScale * 1.5f; 
+                        cull.isVisible = true;
+                        for (const auto& plane : frustumPlanes) {
+                            if (glm::dot(plane.normal, center) + plane.distance < -radius) {
+                                cull.isVisible = false; break;
+                            }
+                        }
+                    }
+                });
+            }
             
-            // --- 패스 1: 그림자 렌더링 (Shadow) ---
+            threadPool->waitAll(); // 스레드 연산 완료 대기
+
+            // [2-3] 버퍼 데이터 쓰기 (★ frameIndex 배열 슬롯에 저장!)
+            int currentCharacterIndex = 0; 
+            for (auto entity : animEntities) {
+                auto& animComp = animView.get<AnimatorComponent>(entity);
+                if (animComp.animator) {
+                    auto& transforms = animComp.animator->getFinalBoneMatrices();
+                    // ★ 현재 프레임의 SSBO에만 기록합니다!
+                    boneSSBOs[frameIndex]->writeToBuffer((void*)transforms.data(), sizeof(glm::mat4) * transforms.size(), sizeof(glm::mat4) * MAX_BONES * currentCharacterIndex);
+                    animComp.characterIndex = currentCharacterIndex;
+                    currentCharacterIndex++;
+                }
+            }
+
+            float waterHeight = 0.0f;
+            auto waterView = registry.view<WaterComponent>();
+            if (!waterView.empty()) waterHeight = waterView.get<WaterComponent>(waterView.front()).height;
+
+            GlobalUbo uboRefraction = uboMain;
+            uboRefraction.clipPlane = glm::vec4(0.0f, -1.0f, 0.0f, waterHeight + 0.1f);
+
+            GlobalUbo uboReflection = uboMain;
+            glm::vec3 refViewPos = viewTrans.translation;
+            refViewPos.y -= 2.0f * (refViewPos.y - waterHeight); 
+            glm::vec3 refTargetPos = koroneTrans.translation;
+            refTargetPos.y -= 2.0f * (refTargetPos.y - waterHeight); 
+            
+            EngineCamera reflectionCamera{};
+            reflectionCamera.setViewTarget(refViewPos, refTargetPos);
+            uboReflection.view = reflectionCamera.getView();
+            uboReflection.projectionView = uboReflection.proj * uboReflection.view;
+            uboReflection.clipPlane = glm::vec4(0.0f, 1.0f, 0.0f, -waterHeight + 0.1f);
+
+            // ★ 현재 프레임의 UBO에만 기록합니다!
+            uboBuffersMain[frameIndex]->writeToBuffer(&uboMain);
+            uboBuffersRefraction[frameIndex]->writeToBuffer(&uboRefraction);
+            uboBuffersReflection[frameIndex]->writeToBuffer(&uboReflection);
+
+            // =======================================================
+            // [3] 렌더링 파이프라인 가동 (★ frameIndex 전달!)
+            // =======================================================
+            particleSystem->computeParticles(commandBuffer, frameTime, frameIndex);
+            
+            // --- 그림자 패스 ---
             VkRenderPassBeginInfo shadowPassInfo{};
             shadowPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
             shadowPassInfo.renderPass = engineShadow->getRenderPass();
@@ -376,11 +387,10 @@ void GameApp::run() {
             shadowPassInfo.clearValueCount = 1; shadowPassInfo.pClearValues = &depthClear;
 
             vkCmdBeginRenderPass(commandBuffer, &shadowPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-            
-            shadowSystem->render(commandBuffer, registry);
+            shadowSystem->render(commandBuffer, registry, frameIndex); // ★ 수정 요망
             vkCmdEndRenderPass(commandBuffer);
 
-            // --- 패스 1.5: 반사 렌더링 (Reflection) ---
+            // --- 반사 패스 ---
             VkRenderPassBeginInfo reflectionPassInfo{};
             reflectionPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
             reflectionPassInfo.renderPass = engineWater->getReflectionRenderPass();
@@ -392,51 +402,32 @@ void GameApp::run() {
             reflectionPassInfo.pClearValues = refClearValues.data();
 
             vkCmdBeginRenderPass(commandBuffer, &reflectionPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-            simpleRenderSystem->renderGameObjects(commandBuffer, registry, RenderPassType::REFLECTION);
-            engineSkybox->render(commandBuffer, 0); 
+            simpleRenderSystem->renderGameObjects(commandBuffer, registry, RenderPassType::REFLECTION, frameIndex); // ★ 수정 요망
+            engineSkybox->render(commandBuffer, frameIndex); 
             vkCmdEndRenderPass(commandBuffer);
 
-            // --- 패스 1.6: 굴절 렌더링 (Refraction) ---
+            // --- 굴절 패스 (스카이박스 제거됨) ---
             VkRenderPassBeginInfo refractionPassInfo = reflectionPassInfo;
             refractionPassInfo.renderPass = engineWater->getRefractionRenderPass();
             refractionPassInfo.framebuffer = engineWater->getRefractionFramebuffer();
 
             vkCmdBeginRenderPass(commandBuffer, &refractionPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-            simpleRenderSystem->renderGameObjects(commandBuffer, registry, RenderPassType::REFRACTION);
-            
-            //engineSkybox->render(commandBuffer, 0);
-
+            simpleRenderSystem->renderGameObjects(commandBuffer, registry, RenderPassType::REFRACTION, frameIndex); // ★ 수정 요망
             vkCmdEndRenderPass(commandBuffer);
 
-            // =======================================================
-            // --- 패스 2: 메인 화면 렌더링 (다이어트 핵심 구간!) ---
-            // =======================================================
-            // ★ 그 많던 스왑체인 버퍼 클리어 및 세팅이 단 한 줄로 압축되었습니다!
+            // --- 메인 패스 ---
             engineRenderer->beginSwapChainRenderPass(commandBuffer);
-            
-            // 1. 코로네 & 바닥
-            simpleRenderSystem->renderGameObjects(commandBuffer, registry);
-            
-            // 2. 스카이박스
-            engineSkybox->render(commandBuffer, 0);
-
-            //2.5 particle
-            particleSystem->renderParticles(commandBuffer);
-            
-            // 3. 물
-            waterRenderSystem->render(commandBuffer, registry);
-
-            // ★ 메인 무대 닫기!
+            simpleRenderSystem->renderGameObjects(commandBuffer, registry, RenderPassType::MAIN, frameIndex); // ★ 수정 요망
+            engineSkybox->render(commandBuffer, frameIndex);
+            particleSystem->renderParticles(commandBuffer, frameIndex);
+            waterRenderSystem->render(commandBuffer, registry, frameIndex); // ★ 수정 요망
             engineRenderer->endSwapChainRenderPass(commandBuffer);
 
-            // =======================================================
-            // [4] 화면 출력 제출 (이 한 줄이 QueueSubmit, Present 등을 다 해줍니다)
-            // =======================================================
             engineRenderer->endFrame();
+            currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
         }
     }
 }
-
 
 // ==========================================================
 // ★ 데이터 기반 씬 로더 

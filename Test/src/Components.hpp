@@ -39,9 +39,9 @@ struct ModelComponent {
     float roughness{0.8f};
     float metallic{0.0f};
 
-    VkDescriptorSet mainSet;
-    VkDescriptorSet reflectionSet;
-    VkDescriptorSet refractionSet;
+    std::vector<VkDescriptorSet> mainSets;
+    std::vector<VkDescriptorSet> reflectionSets;
+    std::vector<VkDescriptorSet> refractionSets;
 };
 
 //(나중에 추가될 부품들: PhysicsComponent, WaterComponent 등...)
@@ -97,7 +97,7 @@ struct WaterComponent {
     std::string normalTexture = "WaterNormal";
 
     // ★ 글로벌하게 쓰던 waterSet을 이제 액체 컴포넌트가 각자 가집니다!
-    VkDescriptorSet waterSet{VK_NULL_HANDLE};
+    std::vector<VkDescriptorSet> waterSets;
 };
 
 // 렌더링 시 사용할 텍스처 이름(머티리얼)을 담는 부품

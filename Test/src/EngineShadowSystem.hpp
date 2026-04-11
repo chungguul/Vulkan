@@ -13,11 +13,12 @@ public:
     EngineShadowSystem(const EngineShadowSystem&) = delete;
     EngineShadowSystem& operator=(const EngineShadowSystem&) = delete;
 
-    void render(VkCommandBuffer commandBuffer, entt::registry& registry);
+    void render(VkCommandBuffer commandBuffer, entt::registry& registry, int frameIndex);
 
 private:
     void createPipeline(VkRenderPass renderPass, VkDescriptorSetLayout globalSetLayout);
 
     EngineDevice& engineDevice;
     std::unique_ptr<EnginePipeline> pipeline;
+    
 };

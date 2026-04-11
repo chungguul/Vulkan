@@ -20,7 +20,7 @@ void EngineWaterSystem::createPipeline(VkRenderPass renderPass, VkDescriptorSetL
     pipeline = std::make_unique<EnginePipeline>(engineDevice, "../Test/shaders/water.vert.spv", "../Test/shaders/water.frag.spv", pipelineConfig);
 }
 
-void EngineWaterSystem::render(VkCommandBuffer commandBuffer, entt::registry& registry) {
+void EngineWaterSystem::render(VkCommandBuffer commandBuffer, entt::registry& registry, int frameIndex) {
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->getPipeline());
 
     auto view = registry.view<WaterComponent, TransformComponent, ModelComponent>();
@@ -40,7 +40,7 @@ void EngineWaterSystem::render(VkCommandBuffer commandBuffer, entt::registry& re
         vkCmdPushConstants(commandBuffer, pipeline->getPipelineLayout(), VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(SimplePushConstantData), &push);
         
         // ★ 여기서 water.waterSet 을 사용합니다! (각자의 고유 텍스처 세트)
-        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->getPipelineLayout(), 0, 1, &water.waterSet, 0, nullptr);
+        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->getPipelineLayout(), 0, 1, &water.waterSets[frameIndex], 0, nullptr);
 
         modelComp.model->bind(commandBuffer);
         modelComp.model->draw(commandBuffer);
