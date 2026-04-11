@@ -15,11 +15,23 @@ layout(location = 3) out vec2 fragUV;
 const int MAX_BONES = 100;
 const int MAX_BONE_INFLUENCE = 4;
 
+struct PointLight {
+    vec4 position; // xyz: 위치, w: 강도
+    vec4 color;    // xyz: 색상
+};
+
 layout(set = 0, binding = 0) uniform GlobalUbo {
     mat4 projectionViewMatrix;
     vec4 ambientLightColor;
     vec3 lightDirection;
     vec4 lightColor;
+    mat4 view;
+    mat4 proj;
+    mat4 lightSpaceMatrix;
+    vec4 clipPlane;
+    float time;
+    PointLight pointLights[10];  // PointLight struct도 동일하게 선언 필요
+    int numPointLights;
 } ubo;
 
 layout(std140, set = 0, binding = 5) readonly buffer BoneBuffer {

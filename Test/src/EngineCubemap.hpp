@@ -17,6 +17,8 @@ public:
     VkImageView getImageView() const { return cubemapImageView; }
     VkSampler getSampler() const { return cubemapSampler; }
 
+    VkImageView getIrradianceImageView() const { return irradianceImageView; }
+
 private:
     void createEmptyCubemap(uint32_t resolution, VkFormat format);
     void createCubemapImageView(VkFormat format);
@@ -24,9 +26,16 @@ private:
     void convertFromHDR(EngineTexture& hdrTexture, uint32_t resolution, VkFormat format);
     std::vector<char> readFile(const std::string& filename);
 
+    void createIrradianceResources(uint32_t resolution);
+    void bakeIrradianceMap(uint32_t resolution);
+
     EngineDevice& engineDevice;
     VkImage cubemapImage = VK_NULL_HANDLE;
     VkDeviceMemory cubemapMemory = VK_NULL_HANDLE;
     VkImageView cubemapImageView = VK_NULL_HANDLE;
     VkSampler cubemapSampler = VK_NULL_HANDLE;
+
+    VkImage irradianceImage = VK_NULL_HANDLE;
+    VkDeviceMemory irradianceMemory = VK_NULL_HANDLE;
+    VkImageView irradianceImageView = VK_NULL_HANDLE;
 };

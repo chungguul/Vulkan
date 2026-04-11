@@ -5,6 +5,7 @@ layout(location = 1) in vec3 fragPosWorld;
 layout(location = 2) in vec3 fragNormalWorld;
 layout(location = 3) in vec2 fragUV;
 
+
 layout(location = 0) out vec4 outColor;
 
 struct PointLight {
@@ -29,6 +30,7 @@ layout(set = 0, binding = 0) uniform GlobalUbo {
 layout(set = 0, binding = 1) uniform sampler2D texSampler;
 layout(set = 0, binding = 2) uniform sampler2D shadowMap;
 layout(set = 0, binding = 3) uniform samplerCube environmentMap;
+layout(set = 0, binding = 4) uniform samplerCube irradianceMap;
 
 layout(push_constant) uniform Push {
     mat4 modelMatrix;
@@ -83,32 +85,6 @@ vec3 fresnelSchlick(float cosTheta, vec3 F0) {
 
 vec3 fresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness) {
     return F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
-}
-
-float PCFShadow(vec4 shadowCoord) {
-    // 그림자 맵 범위를 벗어나면 그림자가 아님 (밝음)
-    if(shadowCoord.z > -1.0 && shadowCoord.z < 1.0) {
-        float shadow = 0.0;
-        
-        // 텍스처 한 픽셀의 크기를 구합니다 (예: 2048x2048 해상도 기준)
-        vec2 texelSize = 1.0 / textureSize(shadowMap, 0); 
-        
-        // 깊이 편향(Bias)을 주어 그림자 표면의 검은 줄무늬(Acne)를 없앱니다.
-        // 빛의 각도에 따라 동적으로 조절하면 더 좋습니다만, 일단 고정값을 줍니다.
-        float bias = 0.005; 
-        float currentDepth = shadowCoord.z - bias;
-
-        // 주변 3x3 픽셀(총 9개)을 검사해서 평균을 냅니다.
-        for(int x = -1; x <= 1; ++x) {
-            for(int y = -1; y <= 1; ++y) {
-                float pcfDepth = texture(shadowMap, shadowCoord.xy + vec2(x, y) * texelSize).r; 
-                shadow += currentDepth > pcfDepth ? 0.2 : 1.0; // 그림자면 0.2(어두움), 아니면 1.0(밝음)
-            }
-        }
-        shadow /= 9.0; // 9개 샘플의 평균
-        return shadow;
-    }
-    return 1.0;
 }
 
 
@@ -197,24 +173,29 @@ void main() {
     }
 
     // --- 그림자 계산 (기존 코드 유지) ---
-    vec4 lightSpacePos = ubo.lightSpaceMatrix * vec4(fragPosWorld, 1.0);
+    float normalOffset = 0.05 * (1.0 - max(dot(N, L), 0.0));
+    vec3 biasedFragPos = fragPosWorld + N * normalOffset;
+
+    // 원래 위치(fragPosWorld) 대신, 살짝 띄운 위치(biasedFragPos)로 그림자 맵을 샘플링합니다.
+    vec4 lightSpacePos = ubo.lightSpaceMatrix * vec4(biasedFragPos, 1.0);
     vec3 projCoords = lightSpacePos.xyz / lightSpacePos.w;
     projCoords.xy = projCoords.xy * 0.5 + 0.5;
 
     float shadow = 0.0;
     if (projCoords.z > -1.0 && projCoords.z < 1.0) {
         float currentDepth = projCoords.z;
-        float bias = max(0.005 * (1.0 - dot(N, L)), 0.001);
-
-        //(주변 9개 픽셀을 검사하여 평균 내기)
+        float bias = 0.001; // 이미 위치를 위로 띄웠으므로 기존의 무식한 z-bias는 최소한으로 줄입니다.
+        
         vec2 texelSize = 1.0 / textureSize(shadowMap, 0);
+        
+        // 기존과 동일한 3x3 소프트웨어 PCF 유지
         for(int x = -1; x <= 1; ++x) {
             for(int y = -1; y <= 1; ++y) {
                 float pcfDepth = texture(shadowMap, projCoords.xy + vec2(x, y) * texelSize).r;
                 shadow += currentDepth - bias > pcfDepth ? 1.0 : 0.0;
             }
         }
-        shadow /= 9.0; // 9개의 결과를 평균 내서 0.0 ~ 1.0 사이의 부드러운 값 도출
+        shadow /= 9.0;
     }
 
     // --- 최종 색상 합성 ---
@@ -231,7 +212,7 @@ void main() {
     // 하늘의 꼭대기(위) 색상과 바닥(아래) 색상을 샘플링한 뒤, 부드럽게 그라데이션으로 섞어줍니다.
     vec3 skyColor = texture(environmentMap, vec3(0.0, 1.0, 0.0)).rgb;
     vec3 groundColor = texture(environmentMap, vec3(0.0, -1.0, 0.0)).rgb;
-    vec3 irradiance = mix(groundColor, skyColor, N.y * 0.5 + 0.5);
+    vec3 irradiance = texture(irradianceMap, N).rgb;
     
     vec3 diffuseIBL = irradiance * albedo;
 
@@ -248,13 +229,15 @@ void main() {
 
     // 4. 최종 Ambient = 하늘의 난반사 + 하늘의 정반사
     vec3 ambient = (kD_IBL * diffuseIBL + specularIBL) * ao;
-    
+    //vec3 ambient = vec3(0.03) * albedo * ao;
+
     // 환경광이 너무 강하면 낮춰줍니다.
     ambient *= 0.8;
 
     // --- 최종 색상 합성 ---
     // 태양/포인트 라이트의 누적빛(Lo)과 IBL 환경광(ambient)을 더합니다!
     vec3 color = ambient + Lo * (1.0 - shadow);
+    //vec3 color = ambient + Lo;
 
     // 톤 매핑 및 감마 복원 (기존 유지)
     color = color / (color + vec3(1.0));

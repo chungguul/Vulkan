@@ -72,6 +72,7 @@ void GameApp::setupDescriptorsAndPipelines() {
         {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+        {4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}, // ★ [NEW] 4번: 조도 맵(Irradiance)
         {5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr} // ★ [NEW] 뼈대 SSBO (5번 바인딩)
     };
     globalSetLayout = descriptorManager->createDescriptorSetLayout(globalBindings);
@@ -92,6 +93,7 @@ void GameApp::setupDescriptorsAndPipelines() {
     };    
     auto shadowImageInfo = makeImgInfo(VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, engineShadow->getImageView(), engineShadow->getSampler());
     auto skyboxInfo      = makeImgInfo(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, skyboxCubemap->getImageView(), skyboxCubemap->getSampler());
+    auto irradianceInfo  = makeImgInfo(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, skyboxCubemap->getIrradianceImageView(), skyboxCubemap->getSampler());
     auto reflectionInfo  = makeImgInfo(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, engineWater->getReflectionImageView(), engineWater->getSampler());
     auto refractionInfo  = makeImgInfo(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, engineWater->getRefractionImageView(), engineWater->getSampler());
         
@@ -121,6 +123,7 @@ void GameApp::setupDescriptorsAndPipelines() {
                 .bindImage(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &albedoInfo) 
                 .bindImage(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &shadowImageInfo)
                 .bindImage(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &skyboxInfo)
+                .bindImage(4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &irradianceInfo)
                 .bindBuffer(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, &boneInfo)
                 .build(modelComp.mainSets[i]); // ★ i번째 공간에 저장!
 
@@ -129,6 +132,7 @@ void GameApp::setupDescriptorsAndPipelines() {
                 .bindImage(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &albedoInfo)
                 .bindImage(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &shadowImageInfo)
                 .bindImage(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &skyboxInfo)
+                .bindImage(4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &irradianceInfo)
                 .bindBuffer(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, &boneInfo)
                 .build(modelComp.reflectionSets[i]); // ★ i번째 공간에 저장!
 
@@ -137,6 +141,7 @@ void GameApp::setupDescriptorsAndPipelines() {
                 .bindImage(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &albedoInfo)
                 .bindImage(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &shadowImageInfo)
                 .bindImage(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &skyboxInfo)
+                .bindImage(4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &irradianceInfo)
                 .bindBuffer(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, &boneInfo)
                 .build(modelComp.refractionSets[i]); // ★ i번째 공간에 저장!
         }
@@ -284,7 +289,19 @@ void GameApp::run() {
             uboMain.time = totalTime;
             uboMain.clipPlane = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
             uboMain.lightDirection = glm::normalize(glm::vec3(0.5f, -3.0f, 1.0f));
-            uboMain.lightSpaceMatrix = glm::ortho(-50.0f, 50.0f, -50.0f, 50.0f, 0.1f, 150.0f) * glm::lookAt(-uboMain.lightDirection * 50.0f, glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+
+            glm::mat4 ortho = glm::ortho(-10.0f, 10.0f, -10.0f, 10.0f, 0.1f, 200.0f);
+            ortho[1][1] *= -1.0f;   // Vulkan Y축 반전
+            ortho[2][2] *= 0.5f;    // Vulkan Z [0,1] 보정
+            ortho[3][2] += 0.5f;
+
+            glm::mat4 lightView_ortho = glm::lookAt(
+                -uboMain.lightDirection * 30.0f,
+                glm::vec3(0.0f),
+                glm::vec3(0.0f, 1.0f, 0.0f)
+            );
+            uboMain.lightSpaceMatrix = ortho * lightView_ortho;
+
             uboMain.lightSpaceMatrix[1][1] *= -1.0f;
 
             int lightCount = 0;

@@ -1,0 +1,71 @@
+#version 450
+
+layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+// 입력: 방금 구워낸 선명한 스카이박스 큐브맵
+layout (binding = 0) uniform samplerCube environmentMap;
+
+// 출력: 흐릿하게 뭉개질 32x32 해상도의 조도 맵(Irradiance Map)
+layout (binding = 1, rgba32f) uniform writeonly imageCube irradianceMap;
+
+const float PI = 3.14159265359;
+
+// 3D 뷰 방향 벡터 계산 (이전 코드와 동일)
+vec3 getCubeDir(vec2 texCoord, uint face) {
+    vec2 uv = texCoord * 2.0 - 1.0;
+    vec3 dir = vec3(0.0);
+    switch(face) {
+        case 0: dir = vec3( 1.0, -uv.y, -uv.x); break;
+        case 1: dir = vec3(-1.0, -uv.y,  uv.x); break;
+        case 2: dir = vec3( uv.x,  1.0,  uv.y); break;
+        case 3: dir = vec3( uv.x, -1.0, -uv.y); break;
+        case 4: dir = vec3( uv.x, -uv.y,  1.0); break;
+        case 5: dir = vec3(-uv.x, -uv.y, -1.0); break;
+    }
+    return normalize(dir);
+}
+
+void main() {
+    ivec3 storePos = ivec3(gl_GlobalInvocationID);
+    ivec2 size = imageSize(irradianceMap);
+    if(storePos.x >= size.x || storePos.y >= size.y) return;
+
+    vec2 uv = (vec2(storePos.xy) + 0.5) / vec2(size);
+    vec3 normal = getCubeDir(uv, storePos.z); // 현재 픽셀이 바라보는 방향 (법선)
+
+    vec3 irradiance = vec3(0.0);
+
+    // ★ 수정: normal이 Y축과 평행할 때 Z축으로 대체 (NaN 방지)
+    vec3 up = abs(normal.y) < 0.999 ? vec3(0.0, 1.0, 0.0) : vec3(0.0, 0.0, 1.0);
+    vec3 right = normalize(cross(up, normal));
+    up         = normalize(cross(normal, right));
+
+    float sampleDelta = 0.025; // 샘플링 간격 (작을수록 정교하지만 느림)
+    float nrSamples = 0.0;
+
+    // 반구(Hemisphere)를 돌며 주변 환경의 빛을 모두 긁어모음 (적분)
+    for(float phi = 0.0; phi < 2.0 * PI; phi += sampleDelta) {
+        for(float theta = 0.0; theta < 0.5 * PI; theta += sampleDelta) {
+            vec3 tangentSample = vec3(sin(theta) * cos(phi),  sin(theta) * sin(phi), cos(theta));
+            vec3 sampleVec = tangentSample.x * right + tangentSample.y * up + tangentSample.z * normal; 
+
+            // ==========================================================
+            // ★ [NEW] 반딧불이(Firefly) 킬 스위치!
+            // 원본 스카이박스에서 빛을 가져옵니다.
+            vec3 envColor = texture(environmentMap, sampleVec).rgb;
+            
+            // 태양빛 같은 초고휘도 값이 조도 맵을 오염시키지 못하도록 최대 밝기를 10.0 이하로 쳐냅니다!
+            envColor = min(envColor, vec3(100.0)); 
+            
+            irradiance += envColor * cos(theta) * sin(theta);
+            // ==========================================================
+            
+            nrSamples++;
+        }
+    }
+    
+    // 평균을 내고 PI를 곱해 물리적인 조도 값 완성!
+    irradiance = PI * irradiance * (1.0 / float(nrSamples));
+
+    imageStore(irradianceMap, storePos, vec4(irradiance, 1.0));
+}

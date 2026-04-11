@@ -15,6 +15,12 @@ void EngineShadowSystem::createPipeline(VkRenderPass renderPass, VkDescriptorSet
     pipelineConfig.colorBlendInfo.attachmentCount = 0;
     pipelineConfig.colorBlendInfo.pAttachments = nullptr;
     pipelineConfig.rasterizationInfo.cullMode = VK_CULL_MODE_FRONT_BIT; // 그림자용 프론트 컬링
+    pipelineConfig.rasterizationInfo.frontFace = VK_FRONT_FACE_CLOCKWISE;
+
+    pipelineConfig.rasterizationInfo.depthBiasEnable = VK_TRUE;
+    pipelineConfig.rasterizationInfo.depthBiasConstantFactor = 1.25f;
+    pipelineConfig.rasterizationInfo.depthBiasSlopeFactor = 1.75f;
+
     pipelineConfig.renderPass = renderPass;
     pipelineConfig.descriptorSetLayouts = {globalSetLayout};
     pipelineConfig.pushConstantRanges = {pushConstantRange};

@@ -136,6 +136,10 @@ void EngineShadow::createShadowResources() {
     samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
     samplerInfo.magFilter = VK_FILTER_LINEAR;
     samplerInfo.minFilter = VK_FILTER_LINEAR;
+
+    samplerInfo.compareEnable = VK_TRUE;
+    samplerInfo.compareOp = VK_COMPARE_OP_LESS;
+
     samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
     
     // ★ 핵심: 그림자 맵(카메라 시야) 바깥쪽에 있는 물체는 그림자가 안 지도록 흰색(가려지지 않음)으로 처리합니다.
