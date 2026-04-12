@@ -46,7 +46,7 @@ struct GlobalUbo {
     glm::mat4 projectionView;
     glm::vec4 ambientLightColor{1.0f, 1.0f, 1.0f, 0.1f};
     glm::vec3 lightDirection = glm::normalize(glm::vec3(0.5f, -3.0f, 1.0f));
-    alignas(16) glm::vec4 lightColor{1.0f, 1.0f, 1.0f, 1.0f};
+    alignas(16) glm::vec4 lightColor{1.0f, 1.0f, 1.0f, 5.0f};
 
     //glm::mat4 finalBonesMatrices[MAX_BONES];
 

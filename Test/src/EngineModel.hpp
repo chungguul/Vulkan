@@ -23,6 +23,9 @@ struct Vertex {
     glm::ivec4 boneIDs{-1, -1, -1, -1}; // 영향을 주는 뼈대의 ID (기본값 -1)
     glm::vec4 boneWeights{0.0f, 0.0f, 0.0f, 0.0f}; // 각 뼈대의 영향력(가중치)
 
+    glm::vec3 tangent{0.0f};
+    glm::vec3 bitangent{0.0f};
+
     static VkVertexInputBindingDescription getBindingDescription();
     static std::vector<VkVertexInputAttributeDescription> getAttributeDescriptions();
 };

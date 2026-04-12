@@ -67,6 +67,17 @@ void AssetManager::loadModel(const std::string& name, const std::string& filepat
         builder.loadModel(filepath);
     }
 
+    for (auto& v : builder.vertices) {
+        if (glm::length(v.tangent) < 0.01f) {
+            // 법선(Normal)과 겹치지 않는 임의의 Up 벡터 선정
+            glm::vec3 up = std::abs(v.normal.y) < 0.999f ? glm::vec3(0.0f, 1.0f, 0.0f) : glm::vec3(0.0f, 0.0f, 1.0f);
+            
+            // 외적(Cross)을 통해 완벽한 수직 벡터들을 창조!
+            v.tangent = glm::normalize(glm::cross(up, v.normal));
+            v.bitangent = glm::normalize(glm::cross(v.normal, v.tangent));
+        }
+    }
+
     // ★ Plane, Cube, Sphere, 외부 모델 모두 사이좋게 여기서 한 번에 Bounding Sphere를 계산합니다.
     builder.calculateBoundingSphere();
     models[name] = std::make_shared<EngineModel>(engineDevice, builder); // device가 아니라 engineDevice!

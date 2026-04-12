@@ -22,7 +22,7 @@ static glm::mat4 convertMatrixToGLMFormat(const aiMatrix4x4& from) {
 void EngineModel::Builder::loadModel(const std::string& filepath) {
     Assimp::Importer importer;
     const aiScene* scene = importer.ReadFile(filepath, 
-        aiProcess_Triangulate | aiProcess_FlipUVs | aiProcess_GenNormals);
+        aiProcess_Triangulate | aiProcess_FlipUVs | aiProcess_GenNormals | aiProcess_CalcTangentSpace);
 
     if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode) {
         throw std::runtime_error("실패: Assimp 모델 로드 오류 - " + std::string(importer.GetErrorString()));
@@ -46,7 +46,17 @@ void EngineModel::Builder::loadModel(const std::string& filepath) {
             if (mesh->mTextureCoords[0]) vertex.uv = { mesh->mTextureCoords[0][i].x, mesh->mTextureCoords[0][i].y };
             else vertex.uv = { 0.0f, 0.0f };
             vertex.color = { 1.0f, 1.0f, 1.0f };
-            
+        
+            //Assimp가 계산해둔 Tangent와 Bitangent 데이터를 빼옵니다!
+            if (mesh->HasTangentsAndBitangents()) {
+                vertex.tangent = { mesh->mTangents[i].x, mesh->mTangents[i].y, mesh->mTangents[i].z };
+                vertex.bitangent = { mesh->mBitangents[i].x, mesh->mBitangents[i].y, mesh->mBitangents[i].z };
+            } else {
+                // 노말이나 UV가 없어서 계산에 실패한 정점들을 위한 기본값 (오류 방지)
+                vertex.tangent = { 1.0f, 0.0f, 0.0f };
+                vertex.bitangent = { 0.0f, 1.0f, 0.0f };
+            }
+
             vertices.push_back(vertex);
         }
 
@@ -83,7 +93,7 @@ VkVertexInputBindingDescription Vertex::getBindingDescription() {
 }
 
 std::vector<VkVertexInputAttributeDescription> Vertex::getAttributeDescriptions() {
-    std::vector<VkVertexInputAttributeDescription> attributeDescriptions(6);
+    std::vector<VkVertexInputAttributeDescription> attributeDescriptions(8);
     // 위치(Position) 데이터 설명
     attributeDescriptions[0].binding = 0;
     attributeDescriptions[0].location = 0;
@@ -114,6 +124,16 @@ std::vector<VkVertexInputAttributeDescription> Vertex::getAttributeDescriptions(
     attributeDescriptions[5].location = 5;
     attributeDescriptions[5].format = VK_FORMAT_R32G32B32A32_SFLOAT;
     attributeDescriptions[5].offset = offsetof(Vertex, boneWeights);
+    //Tangent 데이터 설명 (Location 6)
+    attributeDescriptions[6].binding = 0;
+    attributeDescriptions[6].location = 6;
+    attributeDescriptions[6].format = VK_FORMAT_R32G32B32_SFLOAT;
+    attributeDescriptions[6].offset = offsetof(Vertex, tangent);
+    //Bitangent 데이터 설명 (Location 7)
+    attributeDescriptions[7].binding = 0;
+    attributeDescriptions[7].location = 7;
+    attributeDescriptions[7].format = VK_FORMAT_R32G32B32_SFLOAT;
+    attributeDescriptions[7].offset = offsetof(Vertex, bitangent);
 
 
     return attributeDescriptions;

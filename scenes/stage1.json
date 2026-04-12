@@ -14,7 +14,9 @@
       { "name": "Wood", "path": "../textures/sandy_gravel_02_diff_2k.jpg" },
       { "name": "KoroneMap", "path": "../textures/Korone_Map.png" },
       { "name": "WaterDUDV", "path": "../textures/waterDUDV.png" },
-      { "name": "WaterNormal", "path": "../textures/waterNormal.jpg" }
+      { "name": "WaterNormal", "path": "../textures/waterNormal.jpg" },
+      { "name": "DefaultNormal", "path": "../textures/DefaultNormal.png"},
+      { "name": "Brick", "path": "../textures/brick-512x512.png" }
     ]
   },
   "entities": [
@@ -50,40 +52,40 @@
       "texture": "KoroneMap",
       "transform": { "position": [0.0, 0.0, 2.0], "scale": [0.01, 0.01, 0.01] },
       "material": {
-        "roughness": 0.0,
+        "roughness": 0.1,
         "metallic": 1.0
       },
       "animations": {
-        "idle": "../models/KedamaKorone.fbx"
+        "idle": "../models/Walking.fbx"
       }
     },
-{
+    {
       "tag": "Prop",
-      "model": "MySphere",
+      "model": "MyCube",
       "texture": "Wood",
       "transform": { "position": [-3.0, 1.0, 0.0], "scale": [1.0, 1.0, 1.0] },
       "material": {
-        "roughness": 0.1,
+        "roughness": 0.9,
         "metallic": 1.0
       }
     },
     {
       "tag": "Prop",
-      "model": "MySphere",
-      "texture": "Wood",
+      "model": "MyCube",
+      "texture": "Brick",
       "transform": { "position": [0.0, 1.0, 0.0], "scale": [1.0, 1.0, 1.0] },
       "material": {
-        "roughness": 0.1,
+        "roughness": 0.5,
         "metallic": 0.0
       }
     },
     {
       "tag": "Prop",
-      "model": "MySphere",
+      "model": "MyCube",
       "texture": "Wood",
       "transform": { "position": [3.0, 1.0, 0.0], "scale": [1.0, 1.0, 1.0] },
       "material": {
-        "roughness": 0.9,
+        "roughness": 0.1,
         "metallic": 0.0
       }
     },

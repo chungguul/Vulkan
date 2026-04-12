@@ -4,7 +4,8 @@ layout(location = 0) in vec3 fragColor;
 layout(location = 1) in vec3 fragPosWorld;
 layout(location = 2) in vec3 fragNormalWorld;
 layout(location = 3) in vec2 fragUV;
-
+layout(location = 4) in vec3 fragTangentWorld;
+layout(location = 5) in vec3 fragBitangentWorld;
 
 layout(location = 0) out vec4 outColor;
 
@@ -33,6 +34,7 @@ layout(set = 0, binding = 3) uniform samplerCube environmentMap;
 layout(set = 0, binding = 4) uniform samplerCube irradianceMap;
 layout(set = 0, binding = 5) readonly buffer BoneBuffer { mat4 boneMatrices[]; } boneBuffer;
 layout(set = 0, binding = 6) uniform samplerCube prefilteredMap;
+layout(set = 0, binding = 7) uniform sampler2D normalMap;
 
 layout(push_constant) uniform Push {
     mat4 modelMatrix;
@@ -101,12 +103,49 @@ void main() {
     vec3 albedo = texture(texSampler, fragUV).rgb;
     albedo = pow(albedo, vec3(2.2));
 
+    vec3 N = fragNormalWorld;
+    // CPU에서 법선 데이터가 누락되어 (0,0,0)으로 들어오면 강제로 위쪽(0,1,0)으로 띄워줍니다.
+    if (length(N) < 0.01) { N = vec3(0.0, 1.0, 0.0); }
+    N = normalize(N);
+
+    vec3 T = fragTangentWorld;
+    bool isTBad = (length(T) < 0.01);
+    
+    // 접선이 정상이더라도, 법선(N)과 완전히 평행하면 외적(Cross)이 터지므로 방어합니다.
+    if (!isTBad) {
+        if (abs(dot(normalize(T), N)) > 0.999) { isTBad = true; }
+    }
+
+    // 데이터가 불량하면 셰이더가 임의의 안전한 접선(Tangent)을 창조합니다.
+    if (isTBad) {
+        vec3 up = abs(N.y) < 0.999 ? vec3(0.0, 1.0, 0.0) : vec3(0.0, 0.0, 1.0);
+        T = normalize(cross(up, N));
+    } else {
+        T = normalize(T);
+        T = normalize(T - dot(T, N) * N);
+    }
+
+    vec3 B = cross(N, T);
+    mat3 TBN = mat3(T, B, N);
+    // 노멀 맵 텍스처에서 RGB 값을 읽어옵니다.
+    vec3 normalMapColor = texture(normalMap, fragUV).rgb;
+    normalMapColor = pow(normalMapColor, vec3(1.0/2.2));
+    
+    // RGB(0.0 ~ 1.0) 범위를 XYZ 방향 벡터(-1.0 ~ 1.0) 범위로 매핑합니다.
+    vec3 mappedNormal = normalMapColor * 2.0 - 1.0; 
+    
+    // 최종 법선(N)을 노멀 맵이 지시하는 방향으로 꺾어버립니다!
+    N = normalize(TBN * mappedNormal);
+    // ==========================================================
+
+    //vec3 camPos = vec3(inverse(ubo.view)[3]);
+    //vec3 V = normalize(camPos - fragPosWorld);
+
     // ★ 2. PBR 재질 설정
     float metallic = push.metallic;  
     float roughness = max(push.roughness, 0.05); 
     float ao = 1.0;        
 
-    vec3 N = normalize(fragNormalWorld);
     vec3 camPos = vec3(inverse(ubo.view)[3]); // 뷰 행렬을 역산하여 카메라 월드 위치 추적
     vec3 V = normalize(camPos - fragPosWorld);
 
@@ -235,7 +274,7 @@ void main() {
     // 4. 최종 Ambient = 은은한 난반사 + 영롱한 거울 반사
     vec3 ambient = (kD_IBL * diffuseIBL + specularIBL) * ao;
     
-    ambient *= 0.8; // 환경광 밝기 미세 조절
+    ambient *= 0.2; // 환경광 밝기 미세 조절
 
     // 그림자 적용하여 최종 색상 합성
     vec3 color = ambient + Lo * (1.0 - shadow); 
@@ -245,4 +284,44 @@ void main() {
     color = pow(color, vec3(1.0/2.2));
 
     outColor = vec4(color, 1.0);
+
+    //int debugMode = 5; 
+    // if (debugMode == 1) {
+    //     // [테스트 1] 최종 노멀(N) 벡터 확인
+    //     // 정상: 알록달록한 구슬처럼 매끄러운 그라데이션 (보라, 연두, 핑크 등)
+    //     // 비정상: 단색이거나 까맣게 나옴 (TBN 또는 노멀 맵 붕괴)
+    //     outColor = vec4(N * 0.5 + 0.5, 1.0); 
+    // } 
+    // else if (debugMode == 2) {
+    //     // [테스트 2] 알베도(Albedo) 텍스처 확인
+    //     // 정상: 그림자와 빛이 아예 없는 순수한 '나무(Wood)' 텍스처 이미지가 보여야 함
+    //     // 비정상: 하얗거나 까맣게 나옴 (텍스처 로딩 또는 바인딩 실패)
+    //     outColor = vec4(albedo, 1.0);
+    // } 
+    // else if (debugMode == 3) {
+    //     // [테스트 3] 푸시 상수: 거칠기(Roughness) 값 확인
+    //     // 정상: 거칠기가 0.1이면 아주 어두운 회색, 0.9면 아주 밝은 회색으로 나와야 함
+    //     outColor = vec4(vec3(roughness), 1.0);
+    // } 
+    // else if (debugMode == 4) {
+    //     // [테스트 4] 푸시 상수: 금속성(Metallic) 값 확인
+    //     // 정상: 코로네(1.0)는 순백색, 큐브/구체(0.0)는 순흑색으로 완전히 대비되어야 함
+    //     outColor = vec4(vec3(metallic), 1.0);
+    // } 
+    // else if (debugMode == 5) {
+    //     // [테스트 5] 조도 맵(Irradiance) 샘플링 확인
+    //     // 정상: 은은한 하늘색/주황색이 부드럽게 섞인 파스텔톤 컬러
+    //     // 비정상: 순백색(눈뽕) 또는 노이즈 가득함 (조도 맵 베이킹 버그)
+    //     vec3 dbgIrradiance = texture(irradianceMap, N).rgb;
+    //     outColor = vec4(dbgIrradiance, 1.0);
+    // } 
+    // else if (debugMode == 6) {
+    //     // [테스트 6] 난반사 IBL(Diffuse IBL) 연산 결과 확인
+    //     // 정상: 조도 맵 빛 * 나무 텍스처 색상
+    //     outColor = vec4(diffuseIBL, 1.0);
+    // } 
+    // else {
+    //     // [0] 원래 렌더링
+    //     outColor = vec4(color, 1.0);
+    // }
 }

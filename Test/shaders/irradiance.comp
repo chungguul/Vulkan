@@ -55,7 +55,7 @@ void main() {
             vec3 envColor = texture(environmentMap, sampleVec).rgb;
             
             // 태양빛 같은 초고휘도 값이 조도 맵을 오염시키지 못하도록 최대 밝기를 10.0 이하로 쳐냅니다!
-            envColor = min(envColor, vec3(100.0)); 
+            envColor = min(envColor, vec3(1.2)); 
             
             irradiance += envColor * cos(theta) * sin(theta);
             // ==========================================================
