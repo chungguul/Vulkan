@@ -528,7 +528,16 @@ void GameApp::loadSceneFromJSON(const std::string& filepath) {
                 try {
                     auto model = assetManager->getModel(modelName);
                     auto& modelComp = registry.emplace<ModelComponent>(entity, model);
-                    modelComp.roughness = 0.8f; 
+                    
+
+                    modelComp.roughness = 0.8f; // 기본값 (거친 질감)
+                    modelComp.metallic = 0.0f;  // 기본값 (비금속)
+                    
+                    if (entityData.contains("material")) {
+                        auto& matData = entityData["material"];
+                        modelComp.roughness = matData.value("roughness", 0.8f);
+                        modelComp.metallic  = matData.value("metallic", 0.0f);
+                    }
 
 
                     std::string texName = "Wood"; // 기본값

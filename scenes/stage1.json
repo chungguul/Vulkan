@@ -49,27 +49,43 @@
       "model": "Kedama",
       "texture": "KoroneMap",
       "transform": { "position": [0.0, 0.0, 2.0], "scale": [0.01, 0.01, 0.01] },
+      "material": {
+        "roughness": 0.0,
+        "metallic": 1.0
+      },
       "animations": {
         "idle": "../models/KedamaKorone.fbx"
+      }
+    },
+{
+      "tag": "Prop",
+      "model": "MySphere",
+      "texture": "Wood",
+      "transform": { "position": [-3.0, 1.0, 0.0], "scale": [1.0, 1.0, 1.0] },
+      "material": {
+        "roughness": 0.1,
+        "metallic": 1.0
       }
     },
     {
       "tag": "Prop",
       "model": "MySphere",
       "texture": "Wood",
-      "transform": { "position": [3.0, -1.0, 2.0], "scale": [1.0, 1.0, 1.0] }
-    },
-    {
-      "tag": "Prop",
-      "model": "MyCube",
-      "texture": "Wood",
-      "transform": { "position": [-4.0, -3.0, 1.0], "scale": [2.5, 2.5, 2.5] }
+      "transform": { "position": [0.0, 1.0, 0.0], "scale": [1.0, 1.0, 1.0] },
+      "material": {
+        "roughness": 0.1,
+        "metallic": 0.0
+      }
     },
     {
       "tag": "Prop",
       "model": "MySphere",
       "texture": "Wood",
-      "transform": { "position": [1.5, -4.5, -3.0], "scale": [1.0, 1.0, 1.0] }
+      "transform": { "position": [3.0, 1.0, 0.0], "scale": [1.0, 1.0, 1.0] },
+      "material": {
+        "roughness": 0.9,
+        "metallic": 0.0
+      }
     },
     {
       "tag": "Light",
