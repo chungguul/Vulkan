@@ -29,7 +29,6 @@ EngineBuffer::EngineBuffer(EngineDevice& device, VkDeviceSize bufferSize, VkBuff
     vkBindBufferMemory(engineDevice.getDevice(), buffer, memory, 0);
 }
 
-// 소멸자에서 메모리 해제를 알아서 처리합니다!
 EngineBuffer::~EngineBuffer() {
     unmap();
     vkDestroyBuffer(engineDevice.getDevice(), buffer, nullptr);

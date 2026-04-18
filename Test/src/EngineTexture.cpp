@@ -4,12 +4,10 @@
 #include <stdexcept>
 #include <iostream>
 
-// 1. 기본 생성자 (일반 텍스처 로딩)
 EngineTexture::EngineTexture(EngineDevice& device, const std::string& filepath) : engineDevice{device} {
     loadFromFile(filepath);
 }
 
-// 2. 빈 생성자 (HDR 등을 나중에 수동으로 로딩할 때 사용)
 EngineTexture::EngineTexture(EngineDevice& device) : engineDevice{device} {}
 
 EngineTexture::~EngineTexture() {
@@ -22,7 +20,7 @@ EngineTexture::~EngineTexture() {
 
 void EngineTexture::loadFromFile(const std::string& filepath) {
     int texWidth, texHeight, texChannels;
-    stbi_set_flip_vertically_on_load(false); // 일반 텍스처는 보통 뒤집지 않음
+    stbi_set_flip_vertically_on_load(false); 
     stbi_uc* pixels = stbi_load(filepath.c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
     VkDeviceSize imageSize = texWidth * texHeight * 4;
 
@@ -39,7 +37,7 @@ void EngineTexture::loadFromFile(const std::string& filepath) {
 
     stbi_image_free(pixels);
 
-    VkFormat format = VK_FORMAT_R8G8B8A8_SRGB; // LDR 기본 포맷
+    VkFormat format = VK_FORMAT_R8G8B8A8_SRGB;
 
     createImage(texWidth, texHeight, format, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
     transitionImageLayout(format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
@@ -55,9 +53,9 @@ void EngineTexture::loadFromFile(const std::string& filepath) {
 
 void EngineTexture::loadHDR(const std::string& filepath) {
     int texWidth, texHeight, texChannels;
-    stbi_set_flip_vertically_on_load(true); // HDR은 상하 반전 필요
+    stbi_set_flip_vertically_on_load(true);
     float* pixels = stbi_loadf(filepath.c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
-    VkDeviceSize imageSize = texWidth * texHeight * 4 * sizeof(float); // Float(4바이트) 크기 반영!
+    VkDeviceSize imageSize = texWidth * texHeight * 4 * sizeof(float);
 
     if (!pixels) throw std::runtime_error("실패: HDR 텍스처를 불러올 수 없습니다! 경로: " + filepath);
 
@@ -72,7 +70,7 @@ void EngineTexture::loadHDR(const std::string& filepath) {
 
     stbi_image_free(pixels);
 
-    VkFormat hdrFormat = VK_FORMAT_R32G32B32A32_SFLOAT; // HDR 전용 32비트 포맷
+    VkFormat hdrFormat = VK_FORMAT_R32G32B32A32_SFLOAT;
 
     createImage(texWidth, texHeight, hdrFormat, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
     transitionImageLayout(hdrFormat, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);

@@ -11,10 +11,10 @@ void EngineShadowSystem::createPipeline(VkRenderPass renderPass, VkDescriptorSet
     pushConstantRange.size = sizeof(SimplePushConstantData);
 
     PipelineConfigInfo pipelineConfig{};
-    EnginePipeline::defaultPipelineConfigInfo(pipelineConfig, 2048, 2048); // 그림자 맵 해상도
+    EnginePipeline::defaultPipelineConfigInfo(pipelineConfig, 2048, 2048);
     pipelineConfig.colorBlendInfo.attachmentCount = 0;
     pipelineConfig.colorBlendInfo.pAttachments = nullptr;
-    pipelineConfig.rasterizationInfo.cullMode = VK_CULL_MODE_FRONT_BIT; // 그림자용 프론트 컬링
+    pipelineConfig.rasterizationInfo.cullMode = VK_CULL_MODE_FRONT_BIT; 
     pipelineConfig.rasterizationInfo.frontFace = VK_FRONT_FACE_CLOCKWISE;
 
     pipelineConfig.rasterizationInfo.depthBiasEnable = VK_TRUE;
@@ -39,7 +39,7 @@ void EngineShadowSystem::render(VkCommandBuffer commandBuffer, entt::registry& r
         SimplePushConstantData push{};
         push.modelMatrix = transform.mat4();
 
-        push.characterIndex = 0; // 정적 사물은 기본값 0
+        push.characterIndex = 0;
         if (registry.all_of<AnimatorComponent>(entity)) {
             push.characterIndex = registry.get<AnimatorComponent>(entity).characterIndex;
         }

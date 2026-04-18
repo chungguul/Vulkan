@@ -79,11 +79,11 @@ public:
 private:
     void setupDescriptorsAndPipelines();
 
-    // --- 1. 코어 시스템 ---
+    // 코어 시스템
     EngineWindow window{WIDTH, HEIGHT, "Vulkan Engine"};
     EngineDevice device{window};
 
-    // --- 2. 렌더링 서브시스템 ---
+    // 렌더링 서브시스템
     std::unique_ptr<EngineDescriptorManager> descriptorManager;
     std::unique_ptr<EngineWater> engineWater;
     std::unique_ptr<EngineShadow> engineShadow;
@@ -98,7 +98,7 @@ private:
     VkDescriptorSetLayout waterSetLayout;
     VkDescriptorSet waterSet;
 
-    // --- 3. 에셋 및 버퍼 ---
+    // 에셋 및 버퍼 
     std::unique_ptr<EngineCubemap> skyboxCubemap;
     
     std::vector<std::unique_ptr<EngineBuffer>> uboBuffersMain;
@@ -109,7 +109,7 @@ private:
 
     std::vector<std::unique_ptr<EngineBuffer>> boneSSBOs;
 
-    // --- 4. 게임 로직 시스템 ---
+    // 게임 로직 시스템
     entt::registry registry;
     EnginePhysics physicsEngine;
     EngineCamera camera;

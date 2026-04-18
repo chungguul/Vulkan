@@ -12,16 +12,16 @@ EngineWater::EngineWater(EngineDevice& device, uint32_t width, uint32_t height)
 EngineWater::~EngineWater() {
     VkDevice device = engineDevice.getDevice();
 
-    // 1. 프레임버퍼 및 렌더패스 해제
+    //프레임버퍼 및 렌더패스 해제
     vkDestroyFramebuffer(device, reflectionFramebuffer, nullptr);
     vkDestroyFramebuffer(device, refractionFramebuffer, nullptr);
     vkDestroyRenderPass(device, reflectionRenderPass, nullptr);
     vkDestroyRenderPass(device, refractionRenderPass, nullptr);
 
-    // 2. 샘플러 해제
+    //샘플러 해제
     vkDestroySampler(device, waterSampler, nullptr);
 
-    // 3. 반사 자원 해제
+    //반사 자원 해제
     vkDestroyImageView(device, reflectionColorView, nullptr);
     vkDestroyImage(device, reflectionColorImage, nullptr);
     vkFreeMemory(device, reflectionColorMemory, nullptr);
@@ -30,7 +30,7 @@ EngineWater::~EngineWater() {
     vkDestroyImage(device, reflectionDepthImage, nullptr);
     vkFreeMemory(device, reflectionDepthMemory, nullptr);
 
-    // 4. 굴절 자원 해제
+    //굴절 자원 해제
     vkDestroyImageView(device, refractionColorView, nullptr);
     vkDestroyImage(device, refractionColorImage, nullptr);
     vkFreeMemory(device, refractionColorMemory, nullptr);
@@ -41,25 +41,20 @@ EngineWater::~EngineWater() {
 }
 
 void EngineWater::createRenderPasses() {
-    // ---------------------------------------------------------
-    // 공통 어태치먼트 설정 (색상과 깊이)
-    // ---------------------------------------------------------
     VkAttachmentDescription colorAttachment{};
-    colorAttachment.format = VK_FORMAT_R8G8B8A8_UNORM; // 일반적인 색상 포맷
+    colorAttachment.format = VK_FORMAT_R8G8B8A8_UNORM;
     colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
     colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
     colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
     colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
     colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    // 렌더링이 끝나면 셰이더에서 읽을 수 있는 텍스처(SHADER_READ_ONLY)로 자동 변환!
     colorAttachment.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL; 
 
     VkAttachmentDescription depthAttachment{};
     depthAttachment.format = findDepthFormat();
     depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
     depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    // ★ 주의: 굴절은 물의 깊이를 구하기 위해 Depth값을 셰이더에서 읽어야 하므로 STORE 유지!
     depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE; 
     depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
     depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
@@ -80,7 +75,6 @@ void EngineWater::createRenderPasses() {
     subpass.pColorAttachments = &colorAttachmentRef;
     subpass.pDepthStencilAttachment = &depthAttachmentRef;
 
-    // 안전한 이미지 변환을 위한 의존성 설정
     std::array<VkSubpassDependency, 2> dependencies;
     dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
     dependencies[0].dstSubpass = 0;
@@ -108,7 +102,7 @@ void EngineWater::createRenderPasses() {
     renderPassInfo.dependencyCount = static_cast<uint32_t>(dependencies.size());
     renderPassInfo.pDependencies = dependencies.data();
 
-    // 두 렌더패스가 구조가 똑같으므로 같은 설정으로 2개 만듭니다.
+    // 두 렌더패스가 구조가 똑같으므로 같은 설정
     if (vkCreateRenderPass(engineDevice.getDevice(), &renderPassInfo, nullptr, &reflectionRenderPass) != VK_SUCCESS ||
         vkCreateRenderPass(engineDevice.getDevice(), &renderPassInfo, nullptr, &refractionRenderPass) != VK_SUCCESS) {
         throw std::runtime_error("실패: 물 렌더 패스 생성 오류!");
@@ -118,7 +112,7 @@ void EngineWater::createRenderPasses() {
 void EngineWater::createResources() {
     VkFormat depthFormat = findDepthFormat();
 
-    // 1. 반사(Reflection) 텍스처 생성
+    //반사(Reflection) 텍스처 생성
     createImage(width, height, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_TILING_OPTIMAL,
                 VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, reflectionColorImage, reflectionColorMemory);
@@ -129,7 +123,7 @@ void EngineWater::createResources() {
                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, reflectionDepthImage, reflectionDepthMemory);
     reflectionDepthView = createImageView(reflectionDepthImage, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT);
 
-    // 2. 굴절(Refraction) 텍스처 생성 (★깊이 텍스처도 셰이더에서 읽을 수 있게 SAMPLED_BIT 추가!)
+    //굴절(Refraction) 텍스처 생성
     createImage(width, height, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_TILING_OPTIMAL,
                 VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, refractionColorImage, refractionColorMemory);
@@ -140,7 +134,7 @@ void EngineWater::createResources() {
                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, refractionDepthImage, refractionDepthMemory);
     refractionDepthView = createImageView(refractionDepthImage, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT);
 
-    // 3. 텍스처 샘플러 생성 (물 텍스처는 화면 끝에서 반복되지 않도록 CLAMP_TO_EDGE 사용)
+    // 텍스처 샘플러 생성
     VkSamplerCreateInfo samplerInfo{};
     samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
     samplerInfo.magFilter = VK_FILTER_LINEAR;
@@ -185,9 +179,6 @@ void EngineWater::createFramebuffers() {
     }
 }
 
-// ==========================================================
-// 아래는 Vulkan의 메모리 할당 및 이미지 생성을 위한 보일러플레이트 코드입니다.
-// ==========================================================
 void EngineWater::createImage(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& imageMemory) {
     VkImageCreateInfo imageInfo{};
     imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;

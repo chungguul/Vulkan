@@ -6,15 +6,12 @@
 
 class EngineShadow {
 public:
-    // 그림자 텍스처의 해상도 (크면 클수록 그림자가 선명해집니다. 2048 추천!)
     EngineShadow(EngineDevice& device, uint32_t width = 2048, uint32_t height = 2048);
     ~EngineShadow();
 
-    // 복사 방지
     EngineShadow(const EngineShadow&) = delete;
     EngineShadow& operator=(const EngineShadow&) = delete;
 
-    // Getter 함수들
     VkRenderPass getRenderPass() const { return shadowRenderPass; }
     VkFramebuffer getFramebuffer() const { return shadowFramebuffer; }
     VkImageView getImageView() const { return shadowImageView; }

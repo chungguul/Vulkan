@@ -4,7 +4,7 @@
 #include <cassert>
 #include <algorithm>
 
-// --- Assimp 행렬을 GLM 행렬로 변환하는 헬퍼 함수 ---
+//Assimp 행렬을 GLM 행렬로 변환
 static glm::mat4 convertMatrixToGLMFormat(const aiMatrix4x4& from) {
     glm::mat4 to;
     to[0][0] = from.a1; to[1][0] = from.a2; to[2][0] = from.a3; to[3][0] = from.a4;
@@ -14,23 +14,21 @@ static glm::mat4 convertMatrixToGLMFormat(const aiMatrix4x4& from) {
     return to;
 }
 
-// ==============================================================================
-// 1. EngineBone (뼈대 단일 객체) 구현
-// ==============================================================================
+// 뼈대 단일 객체 구현
 EngineBone::EngineBone(const std::string& name, int ID, const aiNodeAnim* channel)
     : name(name), id(ID), localTransform(1.0f) {
     
-    // 위치(Position) 키프레임 복사
+    // 위치
     for (int i = 0; i < channel->mNumPositionKeys; ++i) {
         aiVector3D aiPosition = channel->mPositionKeys[i].mValue;
         positions.push_back({ {aiPosition.x, aiPosition.y, aiPosition.z}, (float)channel->mPositionKeys[i].mTime });
     }
-    // 회전(Rotation) 키프레임 복사
+    // 회전
     for (int i = 0; i < channel->mNumRotationKeys; ++i) {
         aiQuaternion aiOrientation = channel->mRotationKeys[i].mValue;
         rotations.push_back({ glm::quat(aiOrientation.w, aiOrientation.x, aiOrientation.y, aiOrientation.z), (float)channel->mRotationKeys[i].mTime });
     }
-    // 크기(Scale) 키프레임 복사
+    // 크기
     for (int i = 0; i < channel->mNumScalingKeys; ++i) {
         aiVector3D aiScale = channel->mScalingKeys[i].mValue;
         scales.push_back({ {aiScale.x, aiScale.y, aiScale.z}, (float)channel->mScalingKeys[i].mTime });
@@ -66,7 +64,7 @@ float EngineBone::getScaleFactor(float lastTimeStamp, float nextTimeStamp, float
     return scaleFactor;
 }
 
-// 보간(Interpolation) 연산
+// 보간
 glm::mat4 EngineBone::interpolatePosition(float animationTime) {
     if (1 == positions.size()) return glm::translate(glm::mat4(1.0f), positions[0].position);
     int p0Index = getPositionIndex(animationTime);
@@ -104,9 +102,6 @@ void EngineBone::update(float animationTime) {
 }
 
 
-// ==============================================================================
-// 2. EngineAnimation (애니메이션 전체 관리자) 구현
-// ==============================================================================
 EngineAnimation::EngineAnimation(const std::string& animationPath, EngineModel* model) {
     Assimp::Importer importer;
     const aiScene* scene = importer.ReadFile(animationPath, aiProcess_Triangulate);

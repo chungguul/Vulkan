@@ -4,7 +4,6 @@ EngineAnimator::EngineAnimator(EngineAnimation* animation) {
     currentTime = 0.0f;
     currentAnimation = animation;
     
-    // 뼈대 행렬 100개 공간 미리 확보 (기본값: 단위 행렬)
     finalBoneMatrices.reserve(100);
     for (int i = 0; i < 100; i++) {
         finalBoneMatrices.push_back(glm::mat4(1.0f));
@@ -14,17 +13,14 @@ EngineAnimator::EngineAnimator(EngineAnimation* animation) {
 void EngineAnimator::updateAnimation(float dt) {
     deltaTime = dt;
     if (currentAnimation) {
-        // 1. 애니메이션 속도에 맞춰 현재 시간 증가
         currentTime += currentAnimation->getTicksPerSecond() * dt;
         
-        // 2. 애니메이션이 끝까지 가면 처음으로 루프(Loop)
+        // 애니메이션이 끝까지 가면 처음으로 루프(Loop)
         currentTime = fmod(currentTime, currentAnimation->getDuration());
         
-        // 3. 최상위 뼈대(Root)부터 변환 계산 시작
-        // ★ 부활: 최상위 노드의 기괴한 스케일/회전을 취소시키기 위한 역행렬 생성
+        // 최상위 노드의 기괴한 스케일/회전을 방지하기위한 역행렬 생성
         glm::mat4 globalInverseTransform = glm::inverse(currentAnimation->getRootNode().transformation);
         
-        // ★ 수정: 1.0f 대신, 역행렬을 부모로 넘겨주어 스파게티 현상을 차단합니다.
         calculateBoneTransform(&currentAnimation->getRootNode(), globalInverseTransform);
     }
 }
@@ -38,7 +34,7 @@ void EngineAnimator::calculateBoneTransform(const AssimpNodeData* node, glm::mat
     std::string nodeName = node->name;
     glm::mat4 nodeTransform = node->transformation;
 
-    // 현재 노드(뼈)에 해당하는 애니메이션 키프레임이 있는지 확인
+    // 현재 노드에 해당하는 애니메이션 키프레임이 있는지 확인
     EngineBone* bone = currentAnimation->findBone(nodeName);
     if (bone) {
         // 현재 시간에 맞춰 위치/회전/크기 보간

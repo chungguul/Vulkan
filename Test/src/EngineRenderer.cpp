@@ -23,7 +23,6 @@ void EngineRenderer::recreateSwapChain() {
     if (swapChain == nullptr) {
         swapChain = std::make_unique<EngineSwapChain>(device, extent.width, extent.height);
     } else {
-        // 기존 스왑체인 초기화 후 재생성 (화면 크기 변경 완벽 대응!)
         swapChain.reset();
         swapChain = std::make_unique<EngineSwapChain>(device, extent.width, extent.height);
     }

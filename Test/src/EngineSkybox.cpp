@@ -12,7 +12,6 @@ EngineSkybox::EngineSkybox(EngineDevice& device, VkRenderPass renderPass, uint32
     createPipelineLayout(globalSetLayout);
     createPipeline(renderPass, width, height);
     
-    // 전용 풀 생성 후 셋 할당!
     createDescriptorPool(framesInFlight);
     createDescriptorSets(globalSetLayout, globalUboBuffers, uboSize);
 }
@@ -87,7 +86,6 @@ void EngineSkybox::createDescriptorSets(VkDescriptorSetLayout globalSetLayout, c
             throw std::runtime_error("실패: 스카이박스 디스크립터 셋 할당 오류!");
         }
 
-        // --- (이하 bufferInfo, imageInfo, vkUpdateDescriptorSets 로직은 기존과 완전히 동일) ---
         VkDescriptorBufferInfo bufferInfo{};
         bufferInfo.buffer = globalUboBuffers[i];
         bufferInfo.offset = 0;
@@ -131,6 +129,5 @@ void EngineSkybox::render(VkCommandBuffer commandBuffer, int frameIndex) {
         0, nullptr
     );
 
-    // 하드코딩된 36개의 버텍스 그리기 명령 발사!
     vkCmdDraw(commandBuffer, 36, 1, 0, 0);
 }

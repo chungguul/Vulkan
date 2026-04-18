@@ -26,11 +26,10 @@ public:
     EngineParticleSystem(EngineDevice& device, EngineRenderer& renderer, EngineDescriptorManager& descriptorManager, std::vector<std::unique_ptr<EngineBuffer>>& uboBuffersMain);
     ~EngineParticleSystem();
 
-    // 복사 방지
+
     EngineParticleSystem(const EngineParticleSystem&) = delete;
     EngineParticleSystem& operator=(const EngineParticleSystem&) = delete;
 
-    // 파티클 위치 계산 (컴퓨트 셰이더 실행)
     void computeParticles(VkCommandBuffer commandBuffer, float deltaTime, int frameIndex);
     void renderParticles(VkCommandBuffer commandBuffer, int frameIndex);
 

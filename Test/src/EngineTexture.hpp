@@ -5,15 +5,12 @@
 
 class EngineTexture {
 public:
-    // 일반 텍스처(PNG/JPG)를 바로 로드하는 기본 생성자
     EngineTexture(EngineDevice& device, const std::string& filepath);
     
-    // 빈 텍스처 객체 생성용 (HDR 수동 로드 시 사용)
     EngineTexture(EngineDevice& device); 
     
     ~EngineTexture();
 
-    // 복사 금지
     EngineTexture(const EngineTexture&) = delete;
     EngineTexture& operator=(const EngineTexture&) = delete;
 

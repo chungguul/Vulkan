@@ -5,7 +5,7 @@
 EngineParticleSystem::EngineParticleSystem(EngineDevice& device, EngineRenderer& renderer, EngineDescriptorManager& descriptorManager, std::vector<std::unique_ptr<EngineBuffer>>& uboBuffersMain)
     : engineDevice{device} {
     initParticles();
-    createPipelines(renderer, descriptorManager, uboBuffersMain); // ★ 배열 통째로 넘기기
+    createPipelines(renderer, descriptorManager, uboBuffersMain);
 }
 
 EngineParticleSystem::~EngineParticleSystem() {
@@ -31,28 +31,28 @@ void EngineParticleSystem::initParticles() {
 }
 
 void EngineParticleSystem::createPipelines(EngineRenderer& renderer, EngineDescriptorManager& descriptorManager, std::vector<std::unique_ptr<EngineBuffer>>& uboBuffersMain) {
-    // 1. 디스크립터 세트 세팅
+    //디스크립터 세트 세팅
     std::vector<VkDescriptorSetLayoutBinding> computeBindings = {
         {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr},
         {1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_VERTEX_BIT, nullptr}
     };
     computeSetLayout = descriptorManager.createDescriptorSetLayout(computeBindings);
 
-    // ★ [NEW] 프레임 개수만큼 디스크립터 세트 공간 확보
+    // 디스크립터 세트 공간 확보
     computeDescriptorSets.resize(uboBuffersMain.size());
     VkDescriptorBufferInfo ssboInfo{particleSSBO->getBuffer(), 0, VK_WHOLE_SIZE};
 
-    // ★ [NEW] 루프를 돌면서 프레임별 전용 디스크립터 세트 생성!
+    // 디스크립터 세트 생성
     for (size_t i = 0; i < uboBuffersMain.size(); i++) {
         auto computeUboInfo = uboBuffersMain[i]->descriptorInfo(); 
 
         EngineDescriptorManager::Builder(descriptorManager)
             .bindBuffer(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, &computeUboInfo)
             .bindBuffer(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_VERTEX_BIT, &ssboInfo)
-            .build(computeDescriptorSets[i]); // i번째 위치에 저장
+            .build(computeDescriptorSets[i]);
     }
 
-    // 2. 컴퓨트 파이프라인 생성 (기존 코드 그대로 유지!)
+    // 컴퓨트 파이프라인 생성
     VkPushConstantRange computePush{VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(float)};
     VkPipelineLayoutCreateInfo computeLayoutInfo{};
     computeLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -64,7 +64,7 @@ void EngineParticleSystem::createPipelines(EngineRenderer& renderer, EngineDescr
     
     computePipeline = std::make_unique<EnginePipeline>(engineDevice, "../Test/shaders/particle.comp.spv", computePipelineLayout);
 
-    // 3. 그래픽스 파이프라인 생성 (기존 코드 그대로 유지!)
+    // 파이프라인 생성
     PipelineConfigInfo particleConfig{};
     EnginePipeline::defaultPipelineConfigInfo(particleConfig, 1920, 1080);
     particleConfig.inputAssemblyInfo.topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST; 
@@ -81,7 +81,7 @@ void EngineParticleSystem::createPipelines(EngineRenderer& renderer, EngineDescr
 void EngineParticleSystem::computeParticles(VkCommandBuffer commandBuffer, float deltaTime, int frameIndex) {
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipeline->getPipeline());
 
-    // frameIndex에 맞는 디스크립터 세트 바인딩!
+    // 디스크립터 세트 바인딩
     vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 0, 1, &computeDescriptorSets[frameIndex], 0, nullptr);
     vkCmdPushConstants(commandBuffer, computePipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(float), &deltaTime);
     
@@ -105,6 +105,6 @@ void EngineParticleSystem::computeParticles(VkCommandBuffer commandBuffer, float
 void EngineParticleSystem::renderParticles(VkCommandBuffer commandBuffer, int frameIndex) {
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, particlePipeline->getPipeline());
     
-    // frameIndex에 맞는 디스크립터 세트 바인딩!
+    //  디스크립터 세트 바인딩
     vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, particlePipeline->getPipelineLayout(), 0, 1, &computeDescriptorSets[frameIndex], 0, nullptr);    vkCmdDraw(commandBuffer, PARTICLE_COUNT, 1, 0, 0);
 }

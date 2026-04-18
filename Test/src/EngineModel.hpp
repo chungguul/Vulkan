@@ -8,7 +8,6 @@
 #include <string>
 #include <map>
 
-// 최대 영향을 받을 수 있는 뼈대 개수 제한
 #define MAX_BONE_INFLUENCE 4
 
 struct aiMesh;
@@ -20,8 +19,8 @@ struct Vertex {
     glm::vec3 normal;
     glm::vec2 uv;
     //뼈대 데이터
-    glm::ivec4 boneIDs{-1, -1, -1, -1}; // 영향을 주는 뼈대의 ID (기본값 -1)
-    glm::vec4 boneWeights{0.0f, 0.0f, 0.0f, 0.0f}; // 각 뼈대의 영향력(가중치)
+    glm::ivec4 boneIDs{-1, -1, -1, -1};
+    glm::vec4 boneWeights{0.0f, 0.0f, 0.0f, 0.0f};
 
     glm::vec3 tangent{0.0f};
     glm::vec3 bitangent{0.0f};
@@ -32,7 +31,7 @@ struct Vertex {
 
 struct BoneInfo {
     int id;
-    glm::mat4 offset; // 정점을 뼈의 로컬 공간으로 변환하는 행렬
+    glm::mat4 offset;
 };
 
 class EngineModel {

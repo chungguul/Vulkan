@@ -72,9 +72,6 @@ void SimpleRenderSystem::renderGameObjects(VkCommandBuffer commandBuffer, entt::
 
         vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(SimplePushConstantData), &push);                
         
-        // =======================================================
-        // ★ [수정됨] 단일 세트가 아닌, 다중 프레임 배열에서 [frameIndex]로 꺼내옵니다!
-        // =======================================================
         VkDescriptorSet setToBind = VK_NULL_HANDLE;
         if (passType == RenderPassType::MAIN) {
             setToBind = modelComp.mainSets[frameIndex];       // ★ mainSets 배열
@@ -84,7 +81,6 @@ void SimpleRenderSystem::renderGameObjects(VkCommandBuffer commandBuffer, entt::
             setToBind = modelComp.refractionSets[frameIndex]; // ★ refractionSets 배열
         }
 
-        // 고른 세트를 바인딩!
         vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &setToBind, 0, nullptr);
 
         modelComp.model->bind(commandBuffer);

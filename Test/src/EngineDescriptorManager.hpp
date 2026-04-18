@@ -26,10 +26,8 @@ public:
         Builder& bindBuffer(uint32_t binding, VkDescriptorType type, VkShaderStageFlags stageFlags, VkDescriptorBufferInfo* bufferInfo);
         Builder& bindImage(uint32_t binding, VkDescriptorType type, VkShaderStageFlags stageFlags, VkDescriptorImageInfo* imageInfo);
 
-        // 레이아웃까지 뽑아낼 때 사용 (파이프라인 생성 시 필요)
         bool build(VkDescriptorSet& set, VkDescriptorSetLayout& layout);
         
-        // 레이아웃은 관심 없고 세트만 만들 때 사용
         bool build(VkDescriptorSet& set); 
 
     private:
@@ -41,5 +39,5 @@ public:
 private:
     EngineDevice& engineDevice;
     VkDescriptorPool descriptorPool;
-    std::vector<VkDescriptorSetLayout> layoutCache; // 생성된 레이아웃들을 보관 (소멸 시 일괄 삭제)
+    std::vector<VkDescriptorSetLayout> layoutCache;
 };

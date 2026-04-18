@@ -7,9 +7,7 @@
 
 using json = nlohmann::json;
 
-// ==========================================================
-// 1. 엔진 초기화 (순서가 매우 중요합니다!)
-// ==========================================================
+//엔진 초기화
 GameApp::GameApp() {
     std::cout << "엔진 코어 초기화 중..." << std::endl;
     
@@ -17,11 +15,11 @@ GameApp::GameApp() {
     threadPool = std::make_unique<EngineThreadPool>();
     engineRenderer = std::make_unique<EngineRenderer>(window, device);
 
-    // 1-1. 물리 엔진 초기화
+    // 물리 엔진 초기화
     physicsEngine.init();
     physicsEngine.createFloor();
 
-    // 1-3. UBO 버퍼 생성 및 매핑
+    // UBO 버퍼 생성 및 매핑
     uboBuffersMain.resize(MAX_FRAMES_IN_FLIGHT);
     uboBuffersReflection.resize(MAX_FRAMES_IN_FLIGHT);
     uboBuffersRefraction.resize(MAX_FRAMES_IN_FLIGHT);
@@ -48,7 +46,7 @@ GameApp::GameApp() {
         boneSSBOs[i]->map();
     }
 
-    // 1-4. 텍스처 및 스카이박스 로딩
+    // 텍스처 및 스카이박스 로딩
     std::cout << "코어 에셋 로딩 중..." << std::endl;
 
     engineWater = std::make_unique<EngineWater>(device, WIDTH, HEIGHT);
@@ -60,9 +58,8 @@ GameApp::~GameApp() {
     vkDeviceWaitIdle(device.getDevice());
     std::cout << "엔진 정상 종료 및 메모리 정리 완료." << std::endl;
 }
-// ==========================================================
-// 3. 디스크립터 조립 & 파이프라인 생성
-// ==========================================================
+
+//디스크립터 조립 및 파이프라인 생성
 void GameApp::setupDescriptorsAndPipelines() {
     std::cout << "파이프라인 및 디스크립터 세팅 중..." << std::endl;
 
@@ -106,7 +103,6 @@ void GameApp::setupDescriptorsAndPipelines() {
         auto &modelComp = renderableView.get<ModelComponent>(entity);
         auto &matComp = renderableView.get<MaterialComponent>(entity);
 
-        // ★ [NEW] 디스크립터 세트를 담을 배열의 크기를 2(MAX_FRAMES_IN_FLIGHT)로 늘려줍니다!
         modelComp.mainSets.resize(MAX_FRAMES_IN_FLIGHT);
         modelComp.reflectionSets.resize(MAX_FRAMES_IN_FLIGHT);
         modelComp.refractionSets.resize(MAX_FRAMES_IN_FLIGHT);
@@ -119,7 +115,7 @@ void GameApp::setupDescriptorsAndPipelines() {
         auto normalTex = assetManager->getTexture(normalTexName);
         auto normalInfo = makeImgInfo(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, normalTex->getImageView(), normalTex->getSampler());
 
-        // ★ [NEW] 2개의 프레임 각각에 대해 UBO와 SSBO 정보를 묶어줍니다!
+        // 2개의 프레임 각각에 대해 UBO와 SSBO 정보 세팅
         for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
             auto uboInfoMain       = uboBuffersMain[i]->descriptorInfo();
             auto uboInfoReflection = uboBuffersReflection[i]->descriptorInfo();
@@ -135,7 +131,7 @@ void GameApp::setupDescriptorsAndPipelines() {
                 .bindBuffer(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, &boneInfo)
                 .bindImage(6, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &prefilterInfo)
                 .bindImage(7, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &normalInfo)
-                .build(modelComp.mainSets[i]); // ★ i번째 공간에 저장!
+                .build(modelComp.mainSets[i]);
 
             EngineDescriptorManager::Builder(*descriptorManager)
                 .bindBuffer(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &uboInfoReflection)
@@ -146,7 +142,7 @@ void GameApp::setupDescriptorsAndPipelines() {
                 .bindBuffer(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, &boneInfo)
                 .bindImage(6, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &prefilterInfo)
                 .bindImage(7, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &normalInfo)
-                .build(modelComp.reflectionSets[i]); // ★ i번째 공간에 저장!
+                .build(modelComp.reflectionSets[i]);
 
             EngineDescriptorManager::Builder(*descriptorManager)
                 .bindBuffer(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &uboInfoRefraction)
@@ -157,7 +153,7 @@ void GameApp::setupDescriptorsAndPipelines() {
                 .bindBuffer(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, &boneInfo)
                 .bindImage(6, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &prefilterInfo)
                 .bindImage(7, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &normalInfo)
-                .build(modelComp.refractionSets[i]); // ★ i번째 공간에 저장!
+                .build(modelComp.refractionSets[i]);
         }
     }
 
@@ -165,7 +161,7 @@ void GameApp::setupDescriptorsAndPipelines() {
     for (auto entity : waterView) {
         auto& water = waterView.get<WaterComponent>(entity);
         
-        // ★ [NEW] 물 전용 디스크립터 배열 크기 확보
+        // 물 전용 디스크립터 배열 크기 확보
         water.waterSets.resize(MAX_FRAMES_IN_FLIGHT);
         
         auto dudvTex   = assetManager->getTexture(water.dudvTexture);
@@ -175,9 +171,9 @@ void GameApp::setupDescriptorsAndPipelines() {
         auto normalInfo = makeImgInfo(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, normalTex->getImageView(), normalTex->getSampler());
         auto depthInfo  = makeImgInfo(VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, engineWater->getRefractionDepthView(), engineWater->getSampler());
 
-        // ★ [NEW] 2개의 프레임 각각에 대해 조립!
+        // 2개의 프레임 각각에 대해 조립
         for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-            auto uboInfoMain = uboBuffersMain[i]->descriptorInfo(); // 물 렌더링 시에는 메인 UBO를 사용합니다.
+            auto uboInfoMain = uboBuffersMain[i]->descriptorInfo(); // 물 렌더링 시에는 메인 UBO를 사용
 
             EngineDescriptorManager::Builder(*descriptorManager)
                 .bindBuffer(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &uboInfoMain)
@@ -186,12 +182,12 @@ void GameApp::setupDescriptorsAndPipelines() {
                 .bindImage(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &dudvInfo)   
                 .bindImage(4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &normalInfo) 
                 .bindImage(5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, &depthInfo)
-                .build(water.waterSets[i]); // ★ i번째 공간에 저장!
+                .build(water.waterSets[i]);
         }
     }
 
 
-    // 파이프라인 생성!
+    // 파이프라인 생성
     simpleRenderSystem = std::make_unique<SimpleRenderSystem>(device, engineRenderer->getSwapChainRenderPass(), globalSetLayout);
 
     VkPushConstantRange pushConstantRange{};
@@ -201,9 +197,7 @@ void GameApp::setupDescriptorsAndPipelines() {
     shadowSystem = std::make_unique<EngineShadowSystem>(device, engineShadow->getRenderPass(), globalSetLayout);
     waterRenderSystem = std::make_unique<EngineWaterSystem>(device, engineRenderer->getSwapChainRenderPass(), waterSetLayout);
 
-    // ==========================================================
-    // ★ 1. 스카이박스: 2개의 프레임 버퍼를 모두 배열에 담아 전달!
-    // ==========================================================
+    // 스카이박스: 2개의 프레임 버퍼를 모두 배열로 전달
     std::vector<VkBuffer> uboBufferArray(MAX_FRAMES_IN_FLIGHT);
     for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         uboBufferArray[i] = uboBuffersMain[i]->getBuffer();
@@ -215,25 +209,22 @@ void GameApp::setupDescriptorsAndPipelines() {
         WIDTH, HEIGHT, 
         *skyboxCubemap, 
         globalSetLayout, 
-        uboBufferArray, // 이제 크기가 2인 배열이 들어갑니다!
+        uboBufferArray,
         sizeof(GlobalUbo)
     );
 
-    // ==========================================================
-    // ★ 2. 파티클 시스템: 전체 버퍼 배열을 전달하도록 수정
-    // ==========================================================
+
+    // 파티클 시스템: 전체 버퍼 배열을 전달
     particleSystem = std::make_unique<EngineParticleSystem>(
         device, 
         *engineRenderer, 
         *descriptorManager, 
-        uboBuffersMain // (주의) 단일 객체가 아닌 vector 전체를 넘깁니다!
+        uboBuffersMain
     );
 
 }
 
-// ==========================================================
-// 4. 메인 렌더 루프
-// ==========================================================
+//메인 렌더 루프
 void GameApp::run() {
     std::cout << "엔진 루프 진입 중..." << std::endl;
     auto currentTime = std::chrono::high_resolution_clock::now();
@@ -251,11 +242,8 @@ void GameApp::run() {
 
     while (!window.shouldClose()) {
         window.pollEvents();
-        // ★ [삭제됨] GPU 강제 대기(vkDeviceWaitIdle)가 사라졌습니다!
 
-        // =======================================================
-        // [1] 물리 및 로직 업데이트 (GPU와 무관하게 CPU가 100% 속도로 달립니다)
-        // =======================================================
+        // 물리 및 로직 업데이트 
         auto newTime = std::chrono::high_resolution_clock::now();
         float frameTime = std::chrono::duration<float, std::chrono::seconds::period>(newTime - currentTime).count();
         currentTime = newTime;
@@ -286,15 +274,11 @@ void GameApp::run() {
         camera.setViewTarget(viewTrans.translation, viewTrans.translation + lookDirection);
         camera.setPerspectiveProjection(glm::radians(50.f), engineRenderer->getAspectRatio(), 0.1f, 1000.f);
 
-        // =======================================================
-        // ★ [2] 대망의 다중 프레임 렌더링 시작!
-        // =======================================================
+        // 다중 프레임 렌더링 시작
         if (auto commandBuffer = engineRenderer->beginFrame()) {
-            // ★ 핵심: beginFrame() 내부의 Fence가 대기를 끝냈습니다.
-            // 즉, GPU는 이 frameIndex 번호의 쟁반 사용을 완전히 끝냈으므로 덮어써도 안전합니다!
             int frameIndex = currentFrame;
 
-            // [2-1] UBO 데이터 계산
+            // UBO 데이터 계산
             GlobalUbo uboMain{};
             uboMain.view = camera.getView();
             uboMain.proj = camera.getProjection();
@@ -305,8 +289,8 @@ void GameApp::run() {
             uboMain.lightDirection = glm::normalize(glm::vec3(0.5f, -3.0f, 1.0f));
 
             glm::mat4 ortho = glm::ortho(-10.0f, 10.0f, -10.0f, 10.0f, 0.1f, 200.0f);
-            ortho[1][1] *= -1.0f;   // Vulkan Y축 반전
-            ortho[2][2] *= 0.5f;    // Vulkan Z [0,1] 보정
+            ortho[1][1] *= -1.0f;
+            ortho[2][2] *= 0.5f;
             ortho[3][2] += 0.5f;
 
             glm::mat4 lightView_ortho = glm::lookAt(
@@ -330,7 +314,7 @@ void GameApp::run() {
             }
             uboMain.numPointLights = lightCount;
 
-            // [2-2] 멀티스레드 연산 (애니메이션, 컬링)
+            //멀티스레드 연산 (애니메이션, 컬링)
             auto animView = registry.view<AnimatorComponent>();
             std::vector<entt::entity> animEntities(animView.begin(), animView.end());
             if (!animEntities.empty()) {
@@ -368,13 +352,13 @@ void GameApp::run() {
             
             threadPool->waitAll(); // 스레드 연산 완료 대기
 
-            // [2-3] 버퍼 데이터 쓰기 (★ frameIndex 배열 슬롯에 저장!)
+            //버퍼 데이터 쓰기 (frameIndex 배열 슬롯에 저장)
             int currentCharacterIndex = 0; 
             for (auto entity : animEntities) {
                 auto& animComp = animView.get<AnimatorComponent>(entity);
                 if (animComp.animator) {
                     const auto& transforms = animComp.animator->getFinalBoneMatrices();
-                    // ★ 현재 프레임의 SSBO에만 기록합니다!
+                    //현재 프레임의 SSBO에만 기록
                     boneSSBOs[frameIndex]->writeToBuffer((void*)transforms.data(), sizeof(glm::mat4) * transforms.size(), sizeof(glm::mat4) * MAX_BONES * currentCharacterIndex);
                     animComp.characterIndex = currentCharacterIndex;
                     currentCharacterIndex++;
@@ -390,32 +374,31 @@ void GameApp::run() {
 
             GlobalUbo uboReflection = uboMain;
             
-            // 1. 카메라 위치를 물 아래로 대칭 이동
+            // 카메라 위치를 물 아래로 대칭 이동
             glm::vec3 refViewPos = viewTrans.translation;
             refViewPos.y -= 2.0f * (refViewPos.y - waterHeight); 
             
-            // 2. 메인 카메라의 각도를 가져옵니다.
+            // 메인 카메라의 각도
             float yaw = viewTrans.rotation.y;
             float pitch = viewTrans.rotation.x;
             
-            // 3. 시선 방향(Look Direction)에서 Y축(위아래, pitch)만 반전! (-sin(pitch) 사용)
+            // 시선 방향에서 Y축만 반전
             glm::vec3 refLookDirection{-sin(yaw) * cos(pitch), -sin(pitch), -cos(yaw) * cos(pitch)};
             
-            // 4. 대칭된 위치에서, 반전된 시선 방향을 바라보게 세팅!
+            //대칭된 위치에서 반전된 시선 방향
             EngineCamera reflectionCamera{};
             reflectionCamera.setViewTarget(refViewPos, refViewPos + refLookDirection);
             
             uboReflection.view = reflectionCamera.getView();
             uboReflection.projectionView = uboReflection.proj * uboReflection.view;
             uboReflection.clipPlane = glm::vec4(0.0f, 1.0f, 0.0f, -waterHeight + 0.1f);
-            // ==========================================================
 
-            // ★ 현재 프레임의 UBO에만 기록합니다!
+            // 현재 프레임의 UBO에만 기록
             uboBuffersMain[frameIndex]->writeToBuffer(&uboMain);
-            uboBuffersRefraction[frameIndex]->writeToBuffer(&uboRefraction);   // 복구!
+            uboBuffersRefraction[frameIndex]->writeToBuffer(&uboRefraction);
             uboBuffersReflection[frameIndex]->writeToBuffer(&uboReflection);
             
-            // --- 그림자 패스 ---
+            // 그림자 패스
             VkRenderPassBeginInfo shadowPassInfo{};
             shadowPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
             shadowPassInfo.renderPass = engineShadow->getRenderPass();
@@ -425,10 +408,10 @@ void GameApp::run() {
             shadowPassInfo.clearValueCount = 1; shadowPassInfo.pClearValues = &depthClear;
 
             vkCmdBeginRenderPass(commandBuffer, &shadowPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-            shadowSystem->render(commandBuffer, registry, frameIndex); // ★ 수정 요망
+            shadowSystem->render(commandBuffer, registry, frameIndex);
             vkCmdEndRenderPass(commandBuffer);
 
-            // --- 반사 패스 ---
+            // 반사 패스
             VkRenderPassBeginInfo reflectionPassInfo{};
             reflectionPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
             reflectionPassInfo.renderPass = engineWater->getReflectionRenderPass();
@@ -440,25 +423,25 @@ void GameApp::run() {
             reflectionPassInfo.pClearValues = refClearValues.data();
 
             vkCmdBeginRenderPass(commandBuffer, &reflectionPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-            simpleRenderSystem->renderGameObjects(commandBuffer, registry, RenderPassType::REFLECTION, frameIndex); // ★ 수정 요망
+            simpleRenderSystem->renderGameObjects(commandBuffer, registry, RenderPassType::REFLECTION, frameIndex);
             engineSkybox->render(commandBuffer, frameIndex); 
             vkCmdEndRenderPass(commandBuffer);
 
-            // --- 굴절 패스 (스카이박스 제거됨) ---
+            // 굴절 패스
             VkRenderPassBeginInfo refractionPassInfo = reflectionPassInfo;
             refractionPassInfo.renderPass = engineWater->getRefractionRenderPass();
             refractionPassInfo.framebuffer = engineWater->getRefractionFramebuffer();
 
             vkCmdBeginRenderPass(commandBuffer, &refractionPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-            simpleRenderSystem->renderGameObjects(commandBuffer, registry, RenderPassType::REFRACTION, frameIndex); // ★ 수정 요망
+            simpleRenderSystem->renderGameObjects(commandBuffer, registry, RenderPassType::REFRACTION, frameIndex);
             vkCmdEndRenderPass(commandBuffer);
 
             // --- 메인 패스 ---
             engineRenderer->beginSwapChainRenderPass(commandBuffer);
-            simpleRenderSystem->renderGameObjects(commandBuffer, registry, RenderPassType::MAIN, frameIndex); // ★ 수정 요망
+            simpleRenderSystem->renderGameObjects(commandBuffer, registry, RenderPassType::MAIN, frameIndex);
             engineSkybox->render(commandBuffer, frameIndex);
             particleSystem->renderParticles(commandBuffer, frameIndex);
-            waterRenderSystem->render(commandBuffer, registry, frameIndex); // ★ 수정 요망
+            waterRenderSystem->render(commandBuffer, registry, frameIndex);
             engineRenderer->endSwapChainRenderPass(commandBuffer);
 
             engineRenderer->endFrame();
@@ -467,9 +450,7 @@ void GameApp::run() {
     }
 }
 
-// ==========================================================
-// ★ 데이터 기반 씬 로더 
-// ==========================================================
+// json 데이터 기반 씬 로더 
 void GameApp::loadSceneFromJSON(const std::string& filepath) {
     std::cout << "JSON 씬 로딩 중: " << filepath << std::endl;
 
@@ -481,7 +462,7 @@ void GameApp::loadSceneFromJSON(const std::string& filepath) {
     json j;
     file >> j;
 
-    //0. skybox 로드
+    // skybox 로드
     std::string skyboxPath = "../textures/sunflowers_puresky_4k.hdr"; // 기본값
     if (j.contains("environment") && j.contains("skybox")) {
         skyboxPath = j;
@@ -491,7 +472,7 @@ void GameApp::loadSceneFromJSON(const std::string& filepath) {
     hdrSkyboxTexture.loadHDR(skyboxPath);
     skyboxCubemap = std::make_unique<EngineCubemap>(device, hdrSkyboxTexture, 4096);
 
-    // 1. 필수 에셋 로딩 (models & textures)
+    // 필수 에셋 로딩 
     if (j.contains("required_assets")) {
         for (const auto& modelData : j["required_assets"]["models"]) {
             std::string name = modelData["name"];
@@ -507,12 +488,12 @@ void GameApp::loadSceneFromJSON(const std::string& filepath) {
         }
     }
 
-    // 2. 엔티티 스폰 (ECS 구성)
+    // 엔티티 스폰 (ECS 구성)
     if (j.contains("entities")) {
         for (const auto& entityData : j["entities"]) {
             std::string tag = entityData["tag"];
             
-            // 1. 트랜스폼 데이터 추출 및 장착 (모든 엔티티 공통)
+            // 트랜스폼 데이터 추출 및 장착 (모든 엔티티 공통)
             glm::vec3 pos{0.0f}, scale{1.0f}, rot{0.0f};
             if (entityData.contains("transform")) {
                 auto& t = entityData["transform"];
@@ -530,10 +511,9 @@ void GameApp::loadSceneFromJSON(const std::string& filepath) {
             transform.translation = pos;
             transform.scale = scale;
 
-            // 2. 모델이 있는 경우만 ModelComponent 장착
+            // 모델이 있는 경우만 ModelComponent 장착
             if (entityData.contains("model")) {
                 std::string modelName = entityData["model"];
-                // ★ map.find() 대신 그냥 try-catch로 안전하게 가져오거나 예외처리
                 try {
                     auto model = assetManager->getModel(modelName);
                     auto& modelComp = registry.emplace<ModelComponent>(entity, model);
@@ -551,7 +531,7 @@ void GameApp::loadSceneFromJSON(const std::string& filepath) {
 
                     std::string texName = "Wood"; // 기본값
                     if (entityData.contains("texture")) {
-                        texName = entityData["texture"]; // 안전한 추출
+                        texName = entityData["texture"];
                     }
                     registry.emplace<MaterialComponent>(entity, texName);
 
@@ -564,14 +544,12 @@ void GameApp::loadSceneFromJSON(const std::string& filepath) {
                     if (entityData.contains("animations")) {
                         auto animData = entityData["animations"];
                         
-                        // 현재는 기본 대기(idle) 모션만 로드해서 재생하도록 세팅합니다.
+                        // 기본 대기(idle) 모션 로드
                         if (animData.contains("idle")) {
                             std::string idlePath = animData["idle"].get<std::string>();
                             
-                            // EngineAnimation은 해당 모델의 뼈대(Bone) 구조를 알아야 하므로 model 포인터를 넘겨줍니다.
                             auto idleAnim = std::make_shared<EngineAnimation>(idlePath, model.get());
                             
-                            // AnimatorComponent 생성자를 통해 애니메이션 세팅!
                             registry.emplace<AnimatorComponent>(entity, idleAnim);
                             
                             auto& sphere = registry.get<BoundingSphereComponent>(entity);
@@ -585,9 +563,10 @@ void GameApp::loadSceneFromJSON(const std::string& filepath) {
                 }
             }
 
-            // 3. 태그에 따른 특수 컴포넌트 장착
+            // 태그에 따른 특수 컴포넌트 장착
             if (tag == "Player") {
                 registry.emplace<PlayerTag>(entity);
+                //래그돌 사용시 위 코드 주석처리
                 //uint32_t ragdollID = physicsEngine.createSimpleRagdoll(pos);
                 //registry.emplace<RagdollComponent>(entity, ragdollID);
             } 
@@ -595,7 +574,7 @@ void GameApp::loadSceneFromJSON(const std::string& filepath) {
                 registry.emplace<FloorTag>(entity);
             }
             else if (tag == "Prop") {
-                registry.emplace<PropTag>(entity); // 일반 사물 명찰!
+                registry.emplace<PropTag>(entity);
             }
             else if (tag == "Camera") {
                 registry.emplace<CameraTag>(entity);
@@ -625,9 +604,8 @@ void GameApp::loadSceneFromJSON(const std::string& filepath) {
 
 
 
-    // ★ 수정 4: 모든 에셋과 ECS 엔티티 세팅이 끝났으므로, 디스크립터를 조립합니다!
+    // 디스크립터 조립
     setupDescriptorsAndPipelines();
     
-    // (선택) 조명이나 카메라도 JSON에서 읽어오도록 확장할 수 있습니다.
     std::cout << "씬 로딩 완료: " << j["scene_name"] << std::endl;
 }

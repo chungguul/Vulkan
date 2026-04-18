@@ -9,7 +9,6 @@
 
 class EngineSkybox {
 public:
-    // 스왑체인의 렌더패스와 글로벌 UBO 버퍼들을 주입(Inject) 받습니다.
     EngineSkybox(EngineDevice& device, 
                  VkRenderPass renderPass,
                  uint32_t width,
@@ -18,13 +17,12 @@ public:
                  VkDescriptorSetLayout globalSetLayout,
                  const std::vector<VkBuffer>& globalUboBuffers,
                  VkDeviceSize uboSize
-    ); // GlobalUbo의 크기
+    );
     ~EngineSkybox();
 
     EngineSkybox(const EngineSkybox&) = delete;
     EngineSkybox& operator=(const EngineSkybox&) = delete;
 
-    // Main.cpp의 렌더링 루프 안에서 이 함수 하나만 호출하면 됩니다.
     void render(VkCommandBuffer commandBuffer, int frameIndex);
 
 private:

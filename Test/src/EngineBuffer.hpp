@@ -6,7 +6,6 @@ public:
     EngineBuffer(EngineDevice& device, VkDeviceSize bufferSize, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties);
     ~EngineBuffer();
 
-    // 복사 방지
     EngineBuffer(const EngineBuffer&) = delete;
     EngineBuffer& operator=(const EngineBuffer&) = delete;
 

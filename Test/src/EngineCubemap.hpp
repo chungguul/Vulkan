@@ -7,7 +7,6 @@
 
 class EngineCubemap {
 public:
-    // HDR 텍스처를 받아서 지정된 해상도(기본 1024)의 큐브맵으로 변환하는 생성자
     EngineCubemap(EngineDevice& device, EngineTexture& hdrTexture, uint32_t resolution = 1024);
     ~EngineCubemap();
 

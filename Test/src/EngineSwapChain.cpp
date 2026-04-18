@@ -45,7 +45,6 @@ void EngineSwapChain::createSwapChain() {
     createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 
     // 큐 패밀리 공유 모드 설정
-    // (간단화를 위해 일단 Exclusive 모드로 고정합니다. 대부분의 외장 GPU에서 문제없이 동작합니다.)
     createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
     createInfo.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
     createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
@@ -115,7 +114,6 @@ void EngineSwapChain::createRenderPass() {
     colorAttachmentRef.attachment = 0;
     colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
-    //깊이 어태치먼트 레퍼런스 추가
     VkAttachmentReference depthAttachmentRef{};
     depthAttachmentRef.attachment = 1;
     depthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
@@ -144,7 +142,6 @@ void EngineSwapChain::createFramebuffers() {
     swapchainFramebuffers.resize(swapchainImageViews.size());
 
     for (size_t i = 0; i < swapchainImageViews.size(); i++) {
-        // ★ attachments 배열에 depthImageView 추가
         std::vector<VkImageView> attachments = { swapchainImageViews[i], depthImageView };
 
         VkFramebufferCreateInfo framebufferInfo{};
@@ -178,9 +175,9 @@ void EngineSwapChain::createSyncObjects() {
 }
 
 void EngineSwapChain::createDepthResources() {
-    VkFormat depthFormat = VK_FORMAT_D32_SFLOAT; // 범용적으로 쓰이는 32비트 실수형 깊이 포맷
+    VkFormat depthFormat = VK_FORMAT_D32_SFLOAT; 
 
-    // 1. 이미지 생성
+    // 이미지 생성
     VkImageCreateInfo imageInfo{};
     imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     imageInfo.imageType = VK_IMAGE_TYPE_2D;
@@ -200,7 +197,7 @@ void EngineSwapChain::createDepthResources() {
         throw std::runtime_error("실패: 깊이 이미지 생성 오류!");
     }
 
-    // 2. 메모리 할당
+    // 메모리 할당
     VkMemoryRequirements memRequirements;
     vkGetImageMemoryRequirements(device.getDevice(), depthImage, &memRequirements);
 
@@ -214,7 +211,7 @@ void EngineSwapChain::createDepthResources() {
     }
     vkBindImageMemory(device.getDevice(), depthImage, depthImageMemory, 0);
 
-    // 3. 이미지 뷰 생성
+    // 이미지 뷰 생성
     VkImageViewCreateInfo viewInfo{};
     viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     viewInfo.image = depthImage;
@@ -270,7 +267,7 @@ VkResult EngineSwapChain::submitCommandBuffers(const VkCommandBuffer *buffers, u
     presentInfo.waitSemaphoreCount = 1;
     presentInfo.pWaitSemaphores = signalSemaphores;
 
-    VkSwapchainKHR swapchainsArray[] = {swapchain}; // ★ 수정: 소문자 swapchain
+    VkSwapchainKHR swapchainsArray[] = {swapchain};
     presentInfo.swapchainCount = 1;
     presentInfo.pSwapchains = swapchainsArray;
     presentInfo.pImageIndices = imageIndex;

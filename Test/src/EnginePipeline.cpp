@@ -24,15 +24,13 @@ EnginePipeline::~EnginePipeline() {
     }
 }
 
-// =========================================================
-// [핵심] 기본 파이프라인 세팅을 채워주는 헬퍼 함수
-// =========================================================
+
 void EnginePipeline::defaultPipelineConfigInfo(PipelineConfigInfo& configInfo, uint32_t width, uint32_t height) {
-    // 1. 버텍스 입력 (EngineModel 규격)
+    // 버텍스 입력
     configInfo.bindingDescriptions = {Vertex::getBindingDescription()};
     configInfo.attributeDescriptions = Vertex::getAttributeDescriptions();
 
-    // 2. 뷰포트 & 가위
+    // 뷰포트, 가위
     configInfo.viewport.x = 0.0f;
     configInfo.viewport.y = 0.0f;
     configInfo.viewport.width = static_cast<float>(width);
@@ -49,12 +47,12 @@ void EnginePipeline::defaultPipelineConfigInfo(PipelineConfigInfo& configInfo, u
     configInfo.viewportInfo.scissorCount = 1;
     configInfo.viewportInfo.pScissors = &configInfo.scissor;
 
-    // 3. 입력 어셈블리
+    // 입력 어셈블리
     configInfo.inputAssemblyInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
     configInfo.inputAssemblyInfo.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
     configInfo.inputAssemblyInfo.primitiveRestartEnable = VK_FALSE;
 
-    // 4. 래스터라이저 (뒷면 숨기기 기본 적용)
+    // 래스터라이저
     configInfo.rasterizationInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
     configInfo.rasterizationInfo.depthClampEnable = VK_FALSE;
     configInfo.rasterizationInfo.rasterizerDiscardEnable = VK_FALSE;
@@ -63,12 +61,12 @@ void EnginePipeline::defaultPipelineConfigInfo(PipelineConfigInfo& configInfo, u
     configInfo.rasterizationInfo.cullMode = VK_CULL_MODE_BACK_BIT; 
     configInfo.rasterizationInfo.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 
-    // 5. 멀티샘플링
+    // 멀티샘플링
     configInfo.multisampleInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
     configInfo.multisampleInfo.sampleShadingEnable = VK_FALSE;
     configInfo.multisampleInfo.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
 
-    // 6. 컬러 블렌딩
+    // 컬러 블렌딩
     configInfo.colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
     configInfo.colorBlendAttachment.blendEnable = VK_FALSE;
 
@@ -77,7 +75,7 @@ void EnginePipeline::defaultPipelineConfigInfo(PipelineConfigInfo& configInfo, u
     configInfo.colorBlendInfo.attachmentCount = 1;
     configInfo.colorBlendInfo.pAttachments = &configInfo.colorBlendAttachment;
 
-    // 7. 깊이 버퍼 (가까운 것만 그리기 기본 적용)
+    // 깊이 버퍼 
     configInfo.depthStencilInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
     configInfo.depthStencilInfo.depthTestEnable = VK_TRUE;
     configInfo.depthStencilInfo.depthWriteEnable = VK_TRUE;
@@ -86,7 +84,6 @@ void EnginePipeline::defaultPipelineConfigInfo(PipelineConfigInfo& configInfo, u
     configInfo.depthStencilInfo.stencilTestEnable = VK_FALSE;
 }
 
-// (readFile, createShaderModule은 기존과 완전히 동일하므로 생략)
 std::vector<char> EnginePipeline::readFile(const std::string& filepath) {
     std::ifstream file(filepath, std::ios::ate | std::ios::binary);
     if (!file.is_open()) throw std::runtime_error("실패: 셰이더 파일을 열 수 없습니다! 경로: " + filepath);
@@ -107,9 +104,7 @@ VkShaderModule EnginePipeline::createShaderModule(const std::vector<char>& code)
     return shaderModule;
 }
 
-// =========================================================
-// [핵심] configInfo 값을 읽어서 파이프라인을 최종 조립합니다.
-// =========================================================
+
 void EnginePipeline::createGraphicsPipeline(const std::string& vertFilepath, const std::string& fragFilepath, const PipelineConfigInfo& configInfo) {
     auto vertCode = readFile(vertFilepath);
     auto fragCode = readFile(fragFilepath);
@@ -186,14 +181,12 @@ void EnginePipeline::createComputePipeline(const std::string &computeFilepath, V
     pipelineInfo.layout = pipelineLayout;
     pipelineInfo.stage = computeShaderStageInfo;
 
-    // (참고: 멤버 변수 이름이 graphicsPipeline으로 되어있어도, 파이프라인 핸들 타입은 똑같으므로 그냥 재활용합니다)
     if (vkCreateComputePipelines(engineDevice.getDevice(), VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &graphicsPipeline) != VK_SUCCESS) {
         throw std::runtime_error("컴퓨트 파이프라인 생성 실패!");
     }
 
     vkDestroyShaderModule(engineDevice.getDevice(), computeShaderModule, nullptr);
     
-    // 레이아웃은 외부(GameApp)에서 만들어서 넘겨주었으므로, 여기서 파괴하지 않도록 설정
     this->pipelineLayout = pipelineLayout;
     this->ownsPipelineLayout = false;
 }

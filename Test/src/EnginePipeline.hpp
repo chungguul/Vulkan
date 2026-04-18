@@ -28,7 +28,6 @@ struct PipelineConfigInfo {
 
 class EnginePipeline {
 public:
-    // 생성자 맨 끝에 pushConstantRanges 배열을 받을 수 있도록 추가합니다.
     EnginePipeline(
             EngineDevice& device, 
             const std::string& vertFilepath, 

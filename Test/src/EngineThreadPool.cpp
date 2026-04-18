@@ -16,7 +16,7 @@ EngineThreadPool::EngineThreadPool(size_t numThreads) : stop(false), activeTasks
                     this->activeTasks++;
                 }
                 
-                task(); // 작업 실행!
+                task();
                 
                 {
                     std::unique_lock<std::mutex> lock(this->queueMutex);

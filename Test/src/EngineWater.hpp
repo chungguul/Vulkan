@@ -7,14 +7,12 @@
 
 class EngineWater {
 public:
-    // 반사와 굴절 텍스처의 해상도 (보통 1024면 충분히 예쁩니다)
     EngineWater(EngineDevice& device, uint32_t width = 1024, uint32_t height = 1024);
     ~EngineWater();
 
     EngineWater(const EngineWater&) = delete;
     EngineWater& operator=(const EngineWater&) = delete;
 
-    // --- Getter ---
     VkRenderPass getReflectionRenderPass() const { return reflectionRenderPass; }
     VkFramebuffer getReflectionFramebuffer() const { return reflectionFramebuffer; }
     VkImageView getReflectionImageView() const { return reflectionColorView; }
@@ -41,17 +39,14 @@ private:
     uint32_t width;
     uint32_t height;
 
-    // 반사(Reflection) 자원: 색상만 있으면 됩니다 (하늘이 비치는 거울)
     VkImage reflectionColorImage = VK_NULL_HANDLE;
     VkDeviceMemory reflectionColorMemory = VK_NULL_HANDLE;
     VkImageView reflectionColorView = VK_NULL_HANDLE;
     
-    // 반사 렌더링 시 Z-buffer 역할을 할 깊이 버퍼 (텍스처로 쓰진 않음)
     VkImage reflectionDepthImage = VK_NULL_HANDLE;
     VkDeviceMemory reflectionDepthMemory = VK_NULL_HANDLE;
     VkImageView reflectionDepthView = VK_NULL_HANDLE;
 
-    // 굴절(Refraction) 자원: 색상과 물의 깊이를 알기 위한 깊이 맵 둘 다 필요합니다.
     VkImage refractionColorImage = VK_NULL_HANDLE;
     VkDeviceMemory refractionColorMemory = VK_NULL_HANDLE;
     VkImageView refractionColorView = VK_NULL_HANDLE;

@@ -10,19 +10,15 @@
 
 class EngineThreadPool {
 public:
-    // CPU 코어 개수에 맞춰 스레드를 자동 생성합니다.
     EngineThreadPool(size_t numThreads = std::thread::hardware_concurrency());
     ~EngineThreadPool();
 
-    // 복사 방지
     EngineThreadPool(const EngineThreadPool&) = delete;
     EngineThreadPool& operator=(const EngineThreadPool&) = delete;
 
-    // ★ 어떤 형태의 함수든 받아서 큐에 넣고, Future(결과값)를 반환하는 마법의 템플릿 함수!
     template<class F, class... Args>
     auto enqueue(F&& f, Args&&... args) -> std::future<typename std::invoke_result<F, Args...>::type>;
 
-    // 큐에 있는 모든 작업이 끝날 때까지 메인 스레드를 대기시킵니다.
     void waitAll();
 
 private:
@@ -34,7 +30,7 @@ private:
     std::condition_variable waitCondition;
     
     bool stop;
-    int activeTasks; // 현재 실행 중인 작업 수
+    int activeTasks;
 };
 
 template<class F, class... Args>

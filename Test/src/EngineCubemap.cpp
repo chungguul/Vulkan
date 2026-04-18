@@ -7,22 +7,22 @@
 EngineCubemap::EngineCubemap(EngineDevice& device, EngineTexture& hdrTexture, uint32_t resolution)
     : engineDevice{device} {
     
-    // 1. HDR과 동일한 32-bit Float 포맷 사용
+    // HDR과 동일한 32-bit Float 포맷 사용
     VkFormat format = VK_FORMAT_R32G32B32A32_SFLOAT;
 
-    // 2. 텅 빈 6장짜리 큐브맵 캔버스 생성
+    // 큐브맵 캔버스 생성
     createEmptyCubemap(resolution, format);
     createCubemapImageView(format);
     createCubemapSampler();
 
-    // 3. 컴퓨트 셰이더를 이용해 HDR 이미지를 큐브맵에 굽기 (Baking)
+    // 컴퓨트 셰이더를 이용해 HDR 이미지를 큐브맵에 굽기
     convertFromHDR(hdrTexture, resolution, format);
 
     uint32_t irradianceRes = 32;
     createIrradianceResources(irradianceRes);
     bakeIrradianceMap(irradianceRes);
 
-    uint32_t prefilterRes = 128; // 128x128 해상도면 정반사를 표현하기에 충분합니다.
+    uint32_t prefilterRes = 128;
     createPrefilteredResources(prefilterRes);
     bakePrefilteredMap(prefilterRes);
 }
@@ -50,15 +50,14 @@ void EngineCubemap::createEmptyCubemap(uint32_t resolution, VkFormat format) {
     imageInfo.extent.height = resolution;
     imageInfo.extent.depth = 1;
     imageInfo.mipLevels = 1;
-    imageInfo.arrayLayers = 6; // ★ 큐브맵의 핵심: 6개의 면(Face)
+    imageInfo.arrayLayers = 6;
     imageInfo.format = format;
     imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
     imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    // ★ STORAGE_BIT: 컴퓨트 셰이더가 이 이미지에 픽셀을 직접 기록할 수 있도록 허용
     imageInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
     imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-    imageInfo.flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT; // ★ 이 이미지는 큐브맵으로 쓰일 것입니다!
+    imageInfo.flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
 
     if (vkCreateImage(engineDevice.getDevice(), &imageInfo, nullptr, &cubemapImage) != VK_SUCCESS) {
         throw std::runtime_error("실패: 빈 큐브맵 이미지 생성 오류!");
@@ -82,13 +81,13 @@ void EngineCubemap::createCubemapImageView(VkFormat format) {
     VkImageViewCreateInfo viewInfo{};
     viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     viewInfo.image = cubemapImage;
-    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_CUBE; // ★ 2D가 아닌 큐브맵 뷰로 생성
+    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_CUBE;
     viewInfo.format = format;
     viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     viewInfo.subresourceRange.baseMipLevel = 0;
     viewInfo.subresourceRange.levelCount = 1;
     viewInfo.subresourceRange.baseArrayLayer = 0;
-    viewInfo.subresourceRange.layerCount = 6; // ★ 6장 전부 묶어서 뷰 생성
+    viewInfo.subresourceRange.layerCount = 6;
 
     if (vkCreateImageView(engineDevice.getDevice(), &viewInfo, nullptr, &cubemapImageView) != VK_SUCCESS) {
         throw std::runtime_error("실패: 큐브맵 이미지 뷰 생성 오류!");
@@ -100,7 +99,6 @@ void EngineCubemap::createCubemapSampler() {
     samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
     samplerInfo.magFilter = VK_FILTER_LINEAR;
     samplerInfo.minFilter = VK_FILTER_LINEAR;
-    // 큐브맵은 경계선이 자연스럽게 이어져야 하므로 CLAMP_TO_EDGE를 사용합니다.
     samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
@@ -117,7 +115,6 @@ void EngineCubemap::createCubemapSampler() {
     }
 }
 
-// 셰이더 파일 읽기 헬퍼 (기존 엔진 파이프라인에 있다면 그걸 써도 무방합니다)
 std::vector<char> EngineCubemap::readFile(const std::string& filename) {
     std::ifstream file(filename, std::ios::ate | std::ios::binary);
     if (!file.is_open()) throw std::runtime_error("실패: 파일을 열 수 없습니다! " + filename);
@@ -129,7 +126,6 @@ std::vector<char> EngineCubemap::readFile(const std::string& filename) {
     return buffer;
 }
 
-// ★ 대망의 컴퓨트 셰이더 변환 작업 ★
 void EngineCubemap::convertFromHDR(EngineTexture& hdrTexture, uint32_t resolution, VkFormat format) {
     std::cout << ">>> 컴퓨트 셰이더를 이용한 큐브맵 베이킹 시작..." << std::endl;
 
@@ -142,7 +138,7 @@ void EngineCubemap::convertFromHDR(EngineTexture& hdrTexture, uint32_t resolutio
     VkShaderModule computeShaderModule;
     vkCreateShaderModule(engineDevice.getDevice(), &createInfo, nullptr, &computeShaderModule);
 
-    // 1. 디스크립터 셋 레이아웃 설정 (입력 HDR, 출력 큐브맵)
+    //디스크립터 셋 레이아웃 설정 (입력 HDR, 출력 큐브맵)
     std::array<VkDescriptorSetLayoutBinding, 2> bindings{};
     bindings[0].binding = 0;
     bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -162,7 +158,7 @@ void EngineCubemap::convertFromHDR(EngineTexture& hdrTexture, uint32_t resolutio
     VkDescriptorSetLayout descriptorSetLayout;
     vkCreateDescriptorSetLayout(engineDevice.getDevice(), &layoutInfo, nullptr, &descriptorSetLayout);
 
-    // 2. 임시 디스크립터 풀 & 셋 할당
+    //임시 디스크립터 풀 & 셋 할당
     VkDescriptorPoolSize poolSizes[] = {
         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1},
         {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1}
@@ -183,14 +179,14 @@ void EngineCubemap::convertFromHDR(EngineTexture& hdrTexture, uint32_t resolutio
     VkDescriptorSet descriptorSet;
     vkAllocateDescriptorSets(engineDevice.getDevice(), &allocInfo, &descriptorSet);
 
-    // 3. 디스크립터 셋에 이미지 정보 연결
+    //디스크립터 셋에 이미지 정보 연결
     VkDescriptorImageInfo hdrInfo{};
     hdrInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     hdrInfo.imageView = hdrTexture.getImageView();
     hdrInfo.sampler = hdrTexture.getSampler();
 
     VkDescriptorImageInfo cubeInfo{};
-    cubeInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL; // ★ Storage Image는 무조건 GENERAL 레이아웃이어야 기록 가능합니다.
+    cubeInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
     cubeInfo.imageView = cubemapImageView;
     cubeInfo.sampler = cubemapSampler;
 
@@ -213,7 +209,7 @@ void EngineCubemap::convertFromHDR(EngineTexture& hdrTexture, uint32_t resolutio
 
     vkUpdateDescriptorSets(engineDevice.getDevice(), static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
 
-    // 4. 파이프라인 생성
+    //파이프라인 생성
     VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
     pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     pipelineLayoutInfo.setLayoutCount = 1;
@@ -231,9 +227,7 @@ void EngineCubemap::convertFromHDR(EngineTexture& hdrTexture, uint32_t resolutio
     VkPipeline computePipeline;
     vkCreateComputePipelines(engineDevice.getDevice(), VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &computePipeline);
 
-    // =========================================================
-    // 5. 커맨드 버퍼 기록 및 제출 (디스패치!)
-    // =========================================================
+    //커맨드 버퍼 기록 및 제출
     VkCommandBufferAllocateInfo cmdAllocInfo{};
     cmdAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     cmdAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
@@ -247,7 +241,7 @@ void EngineCubemap::convertFromHDR(EngineTexture& hdrTexture, uint32_t resolutio
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkBeginCommandBuffer(cmd, &beginInfo);
 
-    // (A) 큐브맵을 쓰기 가능한 GENERAL 상태로 변경
+    //큐브맵을 쓰기 가능한 GENERAL 상태로 변경
     VkImageMemoryBarrier barrier{};
     barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
     barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -264,12 +258,12 @@ void EngineCubemap::convertFromHDR(EngineTexture& hdrTexture, uint32_t resolutio
     barrier.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
     vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 
-    // (B) 컴퓨트 파이프라인 바인딩 및 디스패치! (해상도 / 16(로컬 사이즈))
+    //컴퓨트 파이프라인 바인딩 및 디스패치
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, computePipeline);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
     vkCmdDispatch(cmd, resolution / 16, resolution / 16, 6);
 
-    // (C) 굽기가 끝난 큐브맵을 렌더링용 SHADER_READ_ONLY 상태로 변경
+    //굽기가 끝난 큐브맵을 렌더링용 SHADER_READ_ONLY 상태로 변경
     barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
     barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
@@ -287,7 +281,7 @@ void EngineCubemap::convertFromHDR(EngineTexture& hdrTexture, uint32_t resolutio
     vkQueueWaitIdle(engineDevice.getGraphicsQueue());
     vkFreeCommandBuffers(engineDevice.getDevice(), engineDevice.getCommandPool(), 1, &cmd);
 
-    // 6. 베이킹이 끝났으므로 1회성 파이프라인 자원들 전부 파기! (깔끔!)
+    //베이킹이 끝났으므로 1회성 파이프라인 자원들 전부 파기
     vkDestroyPipeline(engineDevice.getDevice(), computePipeline, nullptr);
     vkDestroyPipelineLayout(engineDevice.getDevice(), pipelineLayout, nullptr);
     vkDestroyDescriptorPool(engineDevice.getDevice(), descriptorPool, nullptr);
@@ -300,7 +294,7 @@ void EngineCubemap::convertFromHDR(EngineTexture& hdrTexture, uint32_t resolutio
 void EngineCubemap::createIrradianceResources(uint32_t resolution) {
     VkFormat format = VK_FORMAT_R32G32B32A32_SFLOAT;
 
-    // 1. 이미지 생성
+    //이미지 생성
     VkImageCreateInfo imageInfo{};
     imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     imageInfo.imageType = VK_IMAGE_TYPE_2D;
@@ -332,7 +326,7 @@ void EngineCubemap::createIrradianceResources(uint32_t resolution) {
     vkAllocateMemory(engineDevice.getDevice(), &allocInfo, nullptr, &irradianceMemory);
     vkBindImageMemory(engineDevice.getDevice(), irradianceImage, irradianceMemory, 0);
 
-    // 2. 이미지 뷰 생성
+    //이미지 뷰 생성
     VkImageViewCreateInfo viewInfo{};
     viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     viewInfo.image = irradianceImage;
@@ -344,9 +338,7 @@ void EngineCubemap::createIrradianceResources(uint32_t resolution) {
     viewInfo.subresourceRange.baseArrayLayer = 0;
     viewInfo.subresourceRange.layerCount = 6;
 
-    vkCreateImageView(engineDevice.getDevice(), &viewInfo, nullptr, &irradianceImageView);
-    
-    // (Sampler는 기존 cubemapSampler를 그대로 같이 써도 됩니다!)
+    vkCreateImageView(engineDevice.getDevice(), &viewInfo, nullptr, &irradianceImageView); 
 }
 
 void EngineCubemap::bakeIrradianceMap(uint32_t resolution) {
@@ -354,7 +346,7 @@ void EngineCubemap::bakeIrradianceMap(uint32_t resolution) {
 
     auto shaderCode = readFile("../Test/shaders/irradiance.comp.spv");
     
-    // 셰이더 모듈, 레이아웃, 파이프라인 생성 (convertFromHDR과 거의 동일합니다!)
+    // 셰이더 모듈, 레이아웃, 파이프라인 생성
     VkShaderModuleCreateInfo createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
     createInfo.codeSize = shaderCode.size();
@@ -398,7 +390,7 @@ void EngineCubemap::bakeIrradianceMap(uint32_t resolution) {
     VkDescriptorSet descriptorSet;
     vkAllocateDescriptorSets(engineDevice.getDevice(), &allocInfo, &descriptorSet);
 
-    // ★ 입력: 방금 완성된 메인 큐브맵 / 출력: 새로운 Irradiance 맵
+    //Irradiance 맵
     VkDescriptorImageInfo envInfo{};
     envInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     envInfo.imageView = cubemapImageView;
@@ -459,7 +451,7 @@ void EngineCubemap::bakeIrradianceMap(uint32_t resolution) {
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkBeginCommandBuffer(cmd, &beginInfo);
 
-    // (A) Irradiance 이미지를 쓰기 가능하게 변경
+    //Irradiance 이미지를 쓰기 가능하게 변경
     VkImageMemoryBarrier barrier{};
     barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
     barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -480,7 +472,7 @@ void EngineCubemap::bakeIrradianceMap(uint32_t resolution) {
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
     vkCmdDispatch(cmd, resolution / 16, resolution / 16, 6);
 
-    // (C) 렌더링을 위해 SHADER_READ_ONLY로 변경
+    //렌더링을 위해 SHADER_READ_ONLY로 변경
     barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
     barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
@@ -510,14 +502,14 @@ void EngineCubemap::bakeIrradianceMap(uint32_t resolution) {
 void EngineCubemap::createPrefilteredResources(uint32_t resolution) {
     VkFormat format = VK_FORMAT_R32G32B32A32_SFLOAT;
 
-    // 1. 이미지 생성 (★ mipLevels를 maxMipLevels(5)로 설정!)
+    // 이미지 생성
     VkImageCreateInfo imageInfo{};
     imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     imageInfo.imageType = VK_IMAGE_TYPE_2D;
     imageInfo.extent.width = resolution;
     imageInfo.extent.height = resolution;
     imageInfo.extent.depth = 1;
-    imageInfo.mipLevels = maxMipLevels; // ★ 다중 밉맵
+    imageInfo.mipLevels = maxMipLevels;
     imageInfo.arrayLayers = 6;
     imageInfo.format = format;
     imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
@@ -541,7 +533,7 @@ void EngineCubemap::createPrefilteredResources(uint32_t resolution) {
     vkAllocateMemory(engineDevice.getDevice(), &allocInfo, nullptr, &prefilteredMemory);
     vkBindImageMemory(engineDevice.getDevice(), prefilteredImage, prefilteredMemory, 0);
 
-    // 2. 전체 밉맵을 아우르는 메인 이미지 뷰 생성
+    //메인 이미지 뷰 생성
     VkImageViewCreateInfo viewInfo{};
     viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     viewInfo.image = prefilteredImage;
@@ -578,7 +570,7 @@ void EngineCubemap::bakePrefilteredMap(uint32_t resolution) {
     VkDescriptorSetLayout descriptorSetLayout;
     vkCreateDescriptorSetLayout(engineDevice.getDevice(), &layoutInfo, nullptr, &descriptorSetLayout);
 
-    // ★ 푸시 상수(Push Constant) 설정 (Roughness 전달용)
+    //푸시 상수(Push Constant) 설정
     VkPushConstantRange pushConstantRange{};
     pushConstantRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
     pushConstantRange.offset = 0;
@@ -613,7 +605,7 @@ void EngineCubemap::bakePrefilteredMap(uint32_t resolution) {
     VkCommandBufferBeginInfo beginInfo{}; beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO; beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkBeginCommandBuffer(cmd, &beginInfo);
 
-    // (A) 전체 이미지를 GENERAL 레이아웃으로 변경
+    //전체 이미지를 GENERAL 레이아웃으로 변경
     VkImageMemoryBarrier barrier{};
     barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
     barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED; barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
@@ -625,16 +617,16 @@ void EngineCubemap::bakePrefilteredMap(uint32_t resolution) {
     barrier.srcAccessMask = 0; barrier.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
     vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 
-    // =========================================================
-    // ★ 핵심 루프: 각 밉맵 레벨마다 거칠기를 올려가며 굽습니다!
-    // =========================================================
+
+    // 각 밉맵 레벨마다 거칠기를 올려가며 baking
+
     for (uint32_t mip = 0; mip < maxMipLevels; mip++) {
         // 현재 밉맵 해상도 계산 (128 -> 64 -> 32 -> 16 -> 8)
         uint32_t mipWidth = resolution * std::pow(0.5, mip);
         uint32_t mipHeight = resolution * std::pow(0.5, mip);
         float roughness = (float)mip / (float)(maxMipLevels - 1);
 
-        // 특정 밉맵 1장만을 가리키는 전용 임시 이미지 뷰 생성 (저장용)
+        // 특정 밉맵 1장만을 가리키는 전용 임시 이미지 뷰 생성
         VkImageViewCreateInfo viewInfo{};
         viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
         viewInfo.image = prefilteredImage; viewInfo.viewType = VK_IMAGE_VIEW_TYPE_CUBE; viewInfo.format = VK_FORMAT_R32G32B32A32_SFLOAT;
@@ -663,14 +655,14 @@ void EngineCubemap::bakePrefilteredMap(uint32_t resolution) {
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
         vkCmdPushConstants(cmd, pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(float), &roughness);
         
-        // 워크그룹 개수는 해상도에 비례해서 줄어듭니다. 최소 1개는 보장 (max(1, ...))
+        // 워크그룹 개수는 해상도에 비례해서 줄어듬
         uint32_t groupX = std::max(1u, mipWidth / 16);
         vkCmdDispatch(cmd, groupX, groupX, 6);
 
-        // 임시 뷰는 렌더링 끝난 후 삭제해야 하므로 큐에 보관 (간단히 하기 위해 동기화 전제로 누수 방지 생략. 엄밀히는 commandBuffer 실행 후 vkDestroyImageView 해야 합니다. 테스트용으론 괜찮습니다.)
+        // 임시 뷰는 렌더링 끝난 후 삭제해야 하므로 큐에 보관
     }
 
-    // (C) 모든 밉맵 베이킹 후, 전체 이미지를 렌더링 읽기 전용으로 변환
+    //모든 밉맵 베이킹 후, 전체 이미지를 렌더링 읽기 전용으로 변환
     barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL; barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT; barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
     vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);

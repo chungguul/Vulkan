@@ -4,7 +4,6 @@
 EngineShadow::EngineShadow(EngineDevice& device, uint32_t width, uint32_t height)
     : engineDevice{device}, width{width}, height{height} {
     
-    // 대부분의 기기에서 지원하는 고해상도 깊이 포맷
     depthFormat = VK_FORMAT_D32_SFLOAT; 
 
     createRenderPass();
@@ -25,16 +24,14 @@ void EngineShadow::createRenderPass() {
     VkAttachmentDescription depthAttachment{};
     depthAttachment.format = depthFormat;
     depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-    depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR; // 매 프레임 그리기 전 초기화
+    depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     
-    // ★ 핵심: 그림자를 메인 패스에서 읽어야 하므로 STORE_OP_STORE 로 저장해야 합니다!
     depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE; 
     
     depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
     depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
     depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     
-    // ★ 핵심: 그리가 끝나면 셰이더에서 텍스처로 읽을 수 있는 레이아웃으로 자동 변환됩니다.
     depthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
 
     VkAttachmentReference depthAttachmentRef{};
@@ -43,10 +40,10 @@ void EngineShadow::createRenderPass() {
 
     VkSubpassDescription subpass{};
     subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-    subpass.colorAttachmentCount = 0; // 색상(Color)은 안 그립니다! 오직 깊이만!
+    subpass.colorAttachmentCount = 0;
     subpass.pDepthStencilAttachment = &depthAttachmentRef;
 
-    // 패스 간 동기화 (그림자 그리기가 끝난 후 메인 화면에서 읽도록 보장)
+    // 패스 간 동기화
     std::array<VkSubpassDependency, 2> dependencies;
     dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
     dependencies[0].dstSubpass = 0;
@@ -79,7 +76,7 @@ void EngineShadow::createRenderPass() {
 }
 
 void EngineShadow::createShadowResources() {
-    // 1. 깊이 이미지(텍스처) 생성
+    //깊이 이미지 생성
     VkImageCreateInfo imageInfo{};
     imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     imageInfo.imageType = VK_IMAGE_TYPE_2D;
@@ -92,7 +89,6 @@ void EngineShadow::createShadowResources() {
     imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
     imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     
-    // 그림자를 그릴 때(DEPTH_STENCIL) 쓰고, 나중에 텍스처로 읽을 때(SAMPLED) 쓴다는 뜻입니다.
     imageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
     imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
     imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
@@ -101,7 +97,7 @@ void EngineShadow::createShadowResources() {
         throw std::runtime_error("실패: 그림자 이미지 생성 오류!");
     }
 
-    // 2. 이미지 메모리 할당
+    //이미지 메모리 할당
     VkMemoryRequirements memRequirements;
     vkGetImageMemoryRequirements(engineDevice.getDevice(), shadowImage, &memRequirements);
 
@@ -115,7 +111,7 @@ void EngineShadow::createShadowResources() {
     }
     vkBindImageMemory(engineDevice.getDevice(), shadowImage, shadowImageMemory, 0);
 
-    // 3. 이미지 뷰 생성
+    //이미지 뷰 생성
     VkImageViewCreateInfo viewInfo{};
     viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     viewInfo.image = shadowImage;
@@ -131,7 +127,7 @@ void EngineShadow::createShadowResources() {
         throw std::runtime_error("실패: 그림자 이미지 뷰 생성 오류!");
     }
 
-    // 4. 그림자 전용 샘플러 생성
+    //그림자 전용 샘플러 생성
     VkSamplerCreateInfo samplerInfo{};
     samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
     samplerInfo.magFilter = VK_FILTER_LINEAR;
@@ -142,7 +138,6 @@ void EngineShadow::createShadowResources() {
 
     samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
     
-    // ★ 핵심: 그림자 맵(카메라 시야) 바깥쪽에 있는 물체는 그림자가 안 지도록 흰색(가려지지 않음)으로 처리합니다.
     samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
     samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
     samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;

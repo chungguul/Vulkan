@@ -6,14 +6,12 @@
 
 class EngineSwapChain {
 public:
-    // 생성할 때 Device 객체와 창의 크기 정보를 받아옵니다.
     EngineSwapChain(EngineDevice &deviceRef, int width, int height);
     ~EngineSwapChain();
 
     EngineSwapChain(const EngineSwapChain &) = delete;
     EngineSwapChain &operator=(const EngineSwapChain &) = delete;
 
-    // 외부에서 렌더링할 때 필요한 자원들을 가져갈 수 있도록 Getter 제공
     VkSwapchainKHR getSwapChain() { return swapchain; }
     VkRenderPass getRenderPass() { return renderPass; }
     VkFramebuffer getFrameBuffer(int index) { return swapchainFramebuffers[index]; }
@@ -28,7 +26,6 @@ public:
         return static_cast<float>(windowWidth) / static_cast<float>(windowHeight); 
     }
 
-    // 렌더 루프를 캡슐화할 함수 선언
     VkResult acquireNextImage(uint32_t *imageIndex);
     VkResult submitCommandBuffers(const VkCommandBuffer *buffers, uint32_t *imageIndex); 
     
@@ -51,7 +48,6 @@ private:
     std::vector<VkImage> swapchainImages;
     std::vector<VkImageView> swapchainImageViews;
 
-    //깊이 이미지 관련 변수
     VkImage depthImage;
     VkDeviceMemory depthImageMemory;
     VkImageView depthImageView;
@@ -59,7 +55,6 @@ private:
     VkRenderPass renderPass;
     std::vector<VkFramebuffer> swapchainFramebuffers;
 
-    // 동기화 객체 (일단 1프레임용으로 심플하게 유지합니다)
     VkSemaphore imageAvailableSemaphore;
     VkSemaphore renderFinishedSemaphore;
     VkFence inFlightFence;
