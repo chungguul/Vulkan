@@ -373,7 +373,7 @@ void GameApp::run() {
             for (auto entity : animEntities) {
                 auto& animComp = animView.get<AnimatorComponent>(entity);
                 if (animComp.animator) {
-                    auto& transforms = animComp.animator->getFinalBoneMatrices();
+                    const auto& transforms = animComp.animator->getFinalBoneMatrices();
                     // ★ 현재 프레임의 SSBO에만 기록합니다!
                     boneSSBOs[frameIndex]->writeToBuffer((void*)transforms.data(), sizeof(glm::mat4) * transforms.size(), sizeof(glm::mat4) * MAX_BONES * currentCharacterIndex);
                     animComp.characterIndex = currentCharacterIndex;

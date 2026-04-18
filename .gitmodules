@@ -1,0 +1,18 @@
+[submodule "Test/third_party/glfw"]
+	path = Test/third_party/glfw
+	url = https://github.com/glfw/glfw.git
+[submodule "Test/third_party/glm"]
+	path = Test/third_party/glm
+	url = https://github.com/g-truc/glm.git
+[submodule "Test/third_party/assimp"]
+	path = Test/third_party/assimp
+	url = https://github.com/assimp/assimp.git
+[submodule "Test/third_party/entt"]
+	path = Test/third_party/entt
+	url = https://github.com/skypjack/entt.git
+[submodule "Test/third_party/joltphysics"]
+	path = Test/third_party/joltphysics
+	url = https://github.com/jrouwe/JoltPhysics.git
+[submodule "Test/third_party/nlohmann_json"]
+	path = Test/third_party/nlohmann_json
+	url = https://github.com/nlohmann/json.git

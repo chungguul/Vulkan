@@ -61,6 +61,13 @@ public:
     virtual BroadPhaseLayer GetBroadPhaseLayer(ObjectLayer inLayer) const override {
         return mObjectToBroadPhase[inLayer];
     }
+    virtual const char* GetBroadPhaseLayerName(JPH::BroadPhaseLayer inLayer) const override {
+        switch ((JPH::BroadPhaseLayer::Type)inLayer) {
+            case (JPH::BroadPhaseLayer::Type)BroadPhaseLayers::NON_MOVING: return "NON_MOVING";
+            case (JPH::BroadPhaseLayer::Type)BroadPhaseLayers::MOVING:     return "MOVING";
+            default: return "INVALID";
+        }
+    }
 private:
     BroadPhaseLayer mObjectToBroadPhase[Layers::NUM_LAYERS];
 };
