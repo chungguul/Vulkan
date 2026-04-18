@@ -3,13 +3,10 @@ layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
 struct Particle { vec3 position; vec3 velocity; vec4 color; };
 
-// 바인딩 0번(UBO)은 그래픽스 전용이므로 여기선 아예 무시합니다! (이게 핵심 안전장치입니다)
-// 바인딩 1번(SSBO) 창고만 열어서 사용합니다.
 layout(std430, binding = 1) buffer ParticleSSBO {
     Particle particles[];
 };
 
-// 시간(dt)은 아주 가볍고 빠른 푸시 상수로 받습니다.
 layout(push_constant) uniform Push {
     float dt;
 } push;

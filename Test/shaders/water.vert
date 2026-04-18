@@ -7,7 +7,7 @@ layout(location = 3) in vec2 uv;
 
 layout(location = 0) out vec4 clipSpace;
 layout(location = 1) out vec2 fragUV;
-layout(location = 2) out vec3 fragPosWorld; // ★ 추가: 스페큘러(태양 반사) 계산용 월드 좌표
+layout(location = 2) out vec3 fragPosWorld;
 
 layout(push_constant) uniform Push { mat4 modelMatrix; } push;
 
@@ -28,7 +28,6 @@ void main() {
     clipSpace = ubo.projectionViewMatrix * worldPos;
     gl_Position = clipSpace;
     
-    // 타일링(Tiling): 텍스처가 너무 커 보이지 않게 여러 번 반복시킵니다.
     fragUV = uv * 6.0; 
     fragPosWorld = worldPos.xyz;
 }

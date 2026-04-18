@@ -1,15 +1,10 @@
 #version 450
 
-// GPU 코어를 16x16 픽셀 그룹으로 묶어서 병렬 처리합니다.
 layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
-
-// 입력: 방금 로딩한 2D HDR 파노라마 텍스처
 layout (binding = 0) uniform sampler2D equirectangularMap;
-
-// 출력: 3D 큐브맵의 6개 면 (쓰기 전용, 32-bit Float)
 layout (binding = 1, rgba32f) uniform writeonly imageCube cubemap;
 
-// 구면 좌표계 변환을 위한 마법의 상수 (1/(2*PI), 1/PI)
+// 구면 좌표계 변환을 위한 상수 (1/(2*PI), 1/PI)
 const vec2 invAtan = vec2(0.1591, 0.3183);
 
 // 3D 방향 벡터를 이용해 2D 파노라마 지도의 UV 좌표를 찾는 함수
@@ -29,7 +24,7 @@ vec3 getCubeDir(vec2 texCoord, uint face) {
     switch(face) {
         case 0: dir = vec3( 1.0, -uv.y, -uv.x); break; // +X (Right)
         case 1: dir = vec3(-1.0, -uv.y,  uv.x); break; // -X (Left)
-        case 2: dir = vec3( uv.x,  1.0,  uv.y); break; // +Y (Bottom) - Vulkan Y-down 주의
+        case 2: dir = vec3( uv.x,  1.0,  uv.y); break; // +Y (Bottom)
         case 3: dir = vec3( uv.x, -1.0, -uv.y); break; // -Y (Top)
         case 4: dir = vec3( uv.x, -uv.y,  1.0); break; // +Z (Front)
         case 5: dir = vec3(-uv.x, -uv.y, -1.0); break; // -Z (Back)
@@ -41,7 +36,7 @@ void main() {
     // 현재 스레드가 작업할 픽셀 좌표 (x, y)와 큐브맵 면 인덱스 (z)
     ivec3 storePos = ivec3(gl_GlobalInvocationID);
     
-    // 출력할 큐브맵의 해상도 (예: 1024x1024)
+    // 출력할 큐브맵의 해상도
     ivec2 size = imageSize(cubemap);
     
     // 해상도를 벗어난 스레드는 작업 종료
@@ -53,10 +48,10 @@ void main() {
     // 이 픽셀이 바라봐야 할 3D 방향 벡터 계산
     vec3 dir = getCubeDir(uv, storePos.z);
     
-    // 3D 방향에 해당하는 색상을 2D HDR 이미지에서 쏙 뽑아옵니다.
+    // 3D 방향에 해당하는 색상을 2D HDR 이미지에서 추출
     vec2 sphericalUV = SampleSphericalMap(dir);
     vec4 color = texture(equirectangularMap, sphericalUV);
     
-    // 뽑아온 색상을 큐브맵의 해당 위치에 기록!
+    // 뽑아온 색상을 큐브맵의 해당 위치에 기록
     imageStore(cubemap, storePos, color);
 }

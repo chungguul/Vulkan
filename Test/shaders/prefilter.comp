@@ -5,14 +5,13 @@ layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 layout (binding = 0) uniform samplerCube environmentMap;
 layout (binding = 1, rgba32f) uniform writeonly imageCube prefilteredMap;
 
-// C++에서 현재 굽고 있는 밉맵의 거칠기(Roughness) 값을 넘겨받습니다.
 layout(push_constant) uniform Push {
     float roughness;
 } push;
 
 const float PI = 3.14159265359;
 
-// (1) 비트 반전 함수 (난수 생성용)
+// 비트 반전 함수 (난수 생성용)
 float RadicalInverse_VdC(uint bits) {
     bits = (bits << 16u) | (bits >> 16u);
     bits = ((bits & 0x55555555u) << 1u) | ((bits & 0xAAAAAAAAu) >> 1u);
@@ -22,12 +21,12 @@ float RadicalInverse_VdC(uint bits) {
     return float(bits) * 2.3283064365386963e-10; // / 0x100000000
 }
 
-// (2) 해머슬리 수열: 컴퓨터가 만들 수 있는 가장 고르게 퍼진 2D 난수 좌표
+// 해머슬리 수열: 컴퓨터가 만들 수 있는 가장 고르게 퍼진 2D 난수 좌표
 vec2 Hammersley(uint i, uint N) {
     return vec2(float(i)/float(N), RadicalInverse_VdC(i));
 }
 
-// (3) GGX 중요도 샘플링: 거칠기에 따라 빛이 반사될 확률이 높은 방향을 계산
+// GGX 중요도 샘플링: 거칠기에 따라 빛이 반사될 확률이 높은 방향을 계산
 vec3 ImportanceSampleGGX(vec2 Xi, vec3 N, float roughness) {
     float a = roughness * roughness;
     float phi = 2.0 * PI * Xi.x;
@@ -71,7 +70,7 @@ void main() {
     vec2 uv = (vec2(storePos.xy) + 0.5) / vec2(size);
     vec3 N = getCubeDir(uv, storePos.z);
     
-    // 시선 방향과 반사 방향을 노멀(N)과 동일하게 가정 (에픽게임즈의 근사법)
+    // 시선 방향과 반사 방향을 노멀(N)과 동일하게 가정 (근사치 계산)
     vec3 R = N;
     vec3 V = R;
 
@@ -86,9 +85,9 @@ void main() {
 
         float NdotL = max(dot(N, L), 0.0);
         if(NdotL > 0.0) {
-            // 원본 스카이박스에서 색을 긁어옵니다. (초고휘도 방지를 위해 clamp 적용)
+            // 원본 스카이박스에서 색을 추출 (초고휘도 방지를 위해 clamp 적용)
             vec3 envColor = texture(environmentMap, L).rgb;
-            envColor = min(envColor, vec3(10.0)); // 반딧불이 방지
+            envColor = min(envColor, vec3(10.0));
 
             prefilteredColor += envColor * NdotL;
             totalWeight      += NdotL;
