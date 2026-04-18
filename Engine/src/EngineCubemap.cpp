@@ -129,7 +129,7 @@ std::vector<char> EngineCubemap::readFile(const std::string& filename) {
 void EngineCubemap::convertFromHDR(EngineTexture& hdrTexture, uint32_t resolution, VkFormat format) {
     std::cout << ">>> 컴퓨트 셰이더를 이용한 큐브맵 베이킹 시작..." << std::endl;
 
-    auto shaderCode = readFile("../Test/shaders/equirectangular_to_cubemap.spv"); // 아까 컴파일한 그 파일!
+    auto shaderCode = readFile("../Engine/shaders/equirectangular_to_cubemap.spv"); // 아까 컴파일한 그 파일!
     
     VkShaderModuleCreateInfo createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
@@ -344,7 +344,7 @@ void EngineCubemap::createIrradianceResources(uint32_t resolution) {
 void EngineCubemap::bakeIrradianceMap(uint32_t resolution) {
     std::cout << ">>> Irradiance Map(조도 맵) 베이킹 시작..." << std::endl;
 
-    auto shaderCode = readFile("../Test/shaders/irradiance.comp.spv");
+    auto shaderCode = readFile("../Engine/shaders/irradiance.comp.spv");
     
     // 셰이더 모듈, 레이아웃, 파이프라인 생성
     VkShaderModuleCreateInfo createInfo{};
@@ -551,7 +551,7 @@ void EngineCubemap::createPrefilteredResources(uint32_t resolution) {
 void EngineCubemap::bakePrefilteredMap(uint32_t resolution) {
     std::cout << ">>> Prefiltered Map(사전 필터링 맵) 다중 밉맵 베이킹 시작..." << std::endl;
 
-    auto shaderCode = readFile("../Test/shaders/prefilter.comp.spv");
+    auto shaderCode = readFile("../Engine/shaders/prefilter.comp.spv");
     VkShaderModuleCreateInfo createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
     createInfo.codeSize = shaderCode.size();

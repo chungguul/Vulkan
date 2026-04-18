@@ -48,8 +48,8 @@ void EngineSkybox::createPipeline(VkRenderPass renderPass, uint32_t width, uint3
 
     pipeline = std::make_unique<EnginePipeline>(
         engineDevice, 
-        "../Test/shaders/skybox.vert.spv", 
-        "../Test/shaders/skybox.frag.spv", 
+        "../Engine/shaders/skybox.vert.spv", 
+        "../Engine/shaders/skybox.frag.spv", 
         skyboxConfig
     );
 }

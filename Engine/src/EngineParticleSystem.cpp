@@ -62,7 +62,7 @@ void EngineParticleSystem::createPipelines(EngineRenderer& renderer, EngineDescr
     computeLayoutInfo.pPushConstantRanges = &computePush;
     vkCreatePipelineLayout(engineDevice.getDevice(), &computeLayoutInfo, nullptr, &computePipelineLayout);
     
-    computePipeline = std::make_unique<EnginePipeline>(engineDevice, "../Test/shaders/particle.comp.spv", computePipelineLayout);
+    computePipeline = std::make_unique<EnginePipeline>(engineDevice, "../Engine/shaders/particle.comp.spv", computePipelineLayout);
 
     // 파이프라인 생성
     PipelineConfigInfo particleConfig{};
@@ -74,7 +74,7 @@ void EngineParticleSystem::createPipelines(EngineRenderer& renderer, EngineDescr
     particleConfig.renderPass = renderer.getSwapChainRenderPass();
     particleConfig.descriptorSetLayouts = {computeSetLayout}; 
 
-    particlePipeline = std::make_unique<EnginePipeline>(engineDevice, "../Test/shaders/particle.vert.spv", "../Test/shaders/particle.frag.spv", particleConfig);
+    particlePipeline = std::make_unique<EnginePipeline>(engineDevice, "../Engine/shaders/particle.vert.spv", "../Engine/shaders/particle.frag.spv", particleConfig);
 }
 
 

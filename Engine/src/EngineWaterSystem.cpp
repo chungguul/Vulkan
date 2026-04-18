@@ -17,7 +17,7 @@ void EngineWaterSystem::createPipeline(VkRenderPass renderPass, VkDescriptorSetL
     pipelineConfig.pushConstantRanges = {pushConstantRange};
     pipelineConfig.rasterizationInfo.cullMode = VK_CULL_MODE_NONE;
 
-    pipeline = std::make_unique<EnginePipeline>(engineDevice, "../Test/shaders/water.vert.spv", "../Test/shaders/water.frag.spv", pipelineConfig);
+    pipeline = std::make_unique<EnginePipeline>(engineDevice, "../Engine/shaders/water.vert.spv", "../Engine/shaders/water.frag.spv", pipelineConfig);
 }
 
 void EngineWaterSystem::render(VkCommandBuffer commandBuffer, entt::registry& registry, int frameIndex) {

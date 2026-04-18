@@ -52,8 +52,8 @@
       "texture": "KoroneMap",
       "transform": { "position": [0.0, 0.75, -4.3], "scale": [0.01, 0.01, 0.01] },
       "material": {
-        "roughness": 0.1,
-        "metallic": 1.0
+        "roughness": 0.9,
+        "metallic": 0.0
       },
       "animations": {
         "idle": "../models/Walking.fbx"

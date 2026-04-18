@@ -41,8 +41,8 @@ void SimpleRenderSystem::createPipeline(VkRenderPass renderPass) {
 
     enginePipeline = std::make_unique<EnginePipeline>(
         engineDevice,
-        "../Test/shaders/vert.spv",
-        "../Test/shaders/frag.spv",
+        "../Engine/shaders/vert.spv",
+        "../Engine/shaders/frag.spv",
         pipelineConfig);
 }
 

@@ -25,7 +25,7 @@ void EngineShadowSystem::createPipeline(VkRenderPass renderPass, VkDescriptorSet
     pipelineConfig.descriptorSetLayouts = {globalSetLayout};
     pipelineConfig.pushConstantRanges = {pushConstantRange};
 
-    pipeline = std::make_unique<EnginePipeline>(engineDevice, "../Test/shaders/shadow.vert.spv", "../Test/shaders/shadow.frag.spv", pipelineConfig);
+    pipeline = std::make_unique<EnginePipeline>(engineDevice, "../Engine/shaders/shadow.vert.spv", "../Engine/shaders/shadow.frag.spv", pipelineConfig);
 }
 
 void EngineShadowSystem::render(VkCommandBuffer commandBuffer, entt::registry& registry, int frameIndex) {
