@@ -1,4 +1,4 @@
-# Custom Vulkan Engine
+# Custom Vulkan 3D Rendering Demo
 
 그래픽스 학습을 위해 직접 구축한 Vulkan 3D 렌더링 엔진입니다. 서드파티 라이브러리를 내장하였기에 추가 설치가 필요합니다.
 
